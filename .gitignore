@@ -11,8 +11,18 @@ compile_commands.json
 /Resources/Models/*.data
 /Resources/Models/*.sha256
 
-# Release staging and host-local installation output
-/dist/
+# Keep Release plug-in deliverables versioned (BitonicPixelSorterForAE layout),
+# but ignore non-release outputs. Model weights and ONNX Runtime binaries remain
+# gitignored even when they sit inside a Release tree.
+/dist/Win/Debug/
+/dist/Win/RelWithDebInfo/
+/dist/Win/MinSizeRel/
+/dist/Mac/Debug/
+/dist/Mac/RelWithDebInfo/
+/dist/Mac/MinSizeRel/
+/dist/**/*.onnx
+/dist/**/*.dll
+/dist/**/*.dylib
 /package/
 
 # macOS Finder and Windows Explorer metadata

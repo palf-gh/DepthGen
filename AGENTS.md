@@ -44,8 +44,11 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
 - The top-level project licence is MIT. Preserve every third-party notice,
   version, download URL, and SHA-256 in `THIRD_PARTY_NOTICES.md` and
   `docs/MODEL_PROVENANCE.md`.
-- Never commit model weights, ONNX Runtime binaries, downloaded archives, or
-  generated release packages. The explicit CMake asset targets verify hashes.
+- Never commit model weights, ONNX Runtime binaries, or downloaded archives.
+  CMake writes host plug-ins to `dist/Win/<Config>/` and `dist/Mac/<Config>/`,
+  the same layout as BitonicPixelSorterForAE. Debug trees stay gitignored;
+  Release plug-in binaries may be versioned, but the ONNX and runtime files
+  beside them must not enter Git. The explicit CMake asset targets verify hashes.
 
 ## AE parameter UI
 
