@@ -14,6 +14,25 @@ The required source dimensions are 1920×1080. Run Fast, Balanced, and High on
 Windows DirectML, macOS Core ML, and CPU fallback. A supported GPU must be
 faster than CPU on the same machine before a public release can be signed.
 
+## Windows development baseline — 2026-08-16 (accelerated repackage)
+
+Same machine and pinned runtime as the 2026-08-15 baseline, but with the
+DirectML-ready repackage (`237cfaaf329bc97b9914c14e2d2497b1159cc05cca1b6d7a68aa42a262ea99bf`)
+and the streamlined host pipeline. 15 measured samples per row.
+
+| Provider | Quality | Inference size | p50 | p95 |
+| --- | --- | --- | ---: | ---: |
+| DirectML | Fast | 700×392 | 32.3 ms | 34.8 ms |
+| DirectML | Balanced | 924×518 | 53.4 ms | 56.1 ms |
+| DirectML | High | 1246×700 | 140.2 ms | 145.0 ms |
+| CPU fallback | Balanced | 924×518 | 1061.8 ms | 1084.7 ms |
+
+Every Resize now executes on the GPU; the upstream graph kept one cubic Resize
+on the CPU that alone cost about 274 ms per Balanced frame. The host pre/post
+pipeline (`depthgen_pipeline_bench`, 1080p 8-bpc, best of 5) totals about
+42 ms: alpha read 3.6 ms, fused tensor sampling 12.4 ms, depth upsample
+7.2 ms, level mapping 14.3 ms, output write 4.9 ms.
+
 ## Windows development baseline — 2026-08-15
 
 This is a development validation, not a macOS sign-off or an After Effects

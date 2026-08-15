@@ -46,7 +46,7 @@ synthetic, ImageNet-normalised image that represents the inference size for a
 validation log.
 
 ```powershell
-$env:DEPTHGEN_MODEL_PATH = 'C:\verified\depth_anything_v2_vits_dynamic.onnx'
+$env:DEPTHGEN_MODEL_PATH = 'C:\verified\depth_anything_v2_vits_dml.onnx'
 .\build\Win\Release\depthgen_benchmark.exe --quality balanced --provider accelerated --runs 31
 .\build\Win\Release\depthgen_benchmark.exe --quality balanced --provider cpu --runs 31
 ```
@@ -66,20 +66,24 @@ test override.
 
 ## Model asset
 
-The effect looks for `Resources/Models/depth_anything_v2_vits_dynamic.onnx`
-beside the Windows `.aex`, or inside the macOS bundle. Fetch it once into the
-source tree (the `.onnx` is gitignored), then rebuild so POST_BUILD copies it
-next to the plug-in:
+The effect looks for `Resources/Models/depth_anything_v2_vits_dml.onnx` beside
+the Windows `.aex`, or inside the macOS bundle. The shipped file is a
+DirectML-ready repackage of the upstream export. Fetch the upstream model and
+build the repackage once (the `.onnx` files are gitignored), then rebuild so
+POST_BUILD copies the model next to the plug-in:
 
 ```powershell
-cmake --build build/Win --target depthgen_fetch_model
+cmake --build build/Win --target depthgen_build_model
 cmake --build build/Win --config Release --target DepthGen
 ```
 
-The target downloads only the declared Dynamic Small model and validates its
-SHA-256. Do not copy an unverified file into `Resources/Models`; retain
-`model-manifest.json` and `THIRD_PARTY_NOTICES.md` beside every binary
-distribution.
+`depthgen_fetch_model` downloads only the declared upstream Dynamic Small
+export into `build/depthgen_upstream/` and validates its SHA-256;
+`depthgen_build_model` runs `tools/build_accelerated_model.py` (requires
+Python 3 with the `onnx` package) and fails unless the produced file matches
+the pinned repackage SHA-256. Do not copy an unverified file into
+`Resources/Models`; retain `model-manifest.json` and
+`THIRD_PARTY_NOTICES.md` beside every binary distribution.
 
 ## Release gate
 

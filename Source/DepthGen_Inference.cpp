@@ -67,11 +67,11 @@ std::filesystem::path ResolveModelPath() {
 	const std::filesystem::path plugin_dir = module.parent_path();
 #if defined(_WIN32)
 	// Windows layout: DepthGen.aex beside Resources/Models/.
-	return plugin_dir / "Resources" / "Models" / "depth_anything_v2_vits_dynamic.onnx";
+	return plugin_dir / "Resources" / "Models" / "depth_anything_v2_vits_dml.onnx";
 #else
 	// macOS layout: Contents/MacOS/DepthGen -> Contents/Resources/Models/.
 	return plugin_dir.parent_path() / "Resources" / "Models" /
-		"depth_anything_v2_vits_dynamic.onnx";
+		"depth_anything_v2_vits_dml.onnx";
 #endif
 }
 

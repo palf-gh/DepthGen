@@ -36,11 +36,16 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
   Apache-2.0. Do not substitute Base, Large, Giant, metric, or Video Depth
   Anything weights: their licensing or execution model is outside this
   project’s v1 contract.
+- The shipped ONNX is a repo-defined DirectML-ready repackage of the upstream
+  FP32 export, produced by `tools/build_accelerated_model.py` (constant-scale
+  bilinear upsamples; linear positional-embedding resampling). Weights are
+  unchanged; only interpolation wiring differs. Regenerate it via the
+  `depthgen_build_model` target; never edit the graph by hand.
 - The top-level project licence is MIT. Preserve every third-party notice,
   version, download URL, and SHA-256 in `THIRD_PARTY_NOTICES.md` and
   `docs/MODEL_PROVENANCE.md`.
 - Never commit model weights, ONNX Runtime binaries, downloaded archives, or
-  generated release packages. The explicit CMake asset target verifies hashes.
+  generated release packages. The explicit CMake asset targets verify hashes.
 
 ## AE parameter UI
 

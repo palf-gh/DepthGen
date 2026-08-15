@@ -120,15 +120,19 @@ endif()
 
 if(WIN32)
   add_custom_command(TARGET DepthGen POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-      "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
-      "$<TARGET_FILE_DIR:DepthGen>/Resources/Models"
+    COMMAND "${CMAKE_COMMAND}"
+      -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
+      -DDEPTHGEN_MODELS_DESTINATION=$<TARGET_FILE_DIR:DepthGen>/Resources/Models
+      -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
     COMMENT "Copying DepthGen model assets beside DepthGen.aex")
 elseif(APPLE)
   add_custom_command(TARGET DepthGen POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory
-      "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
-      "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/Models"
+    COMMAND "${CMAKE_COMMAND}"
+      -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
+      -DDEPTHGEN_MODELS_DESTINATION=$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/Models
+      -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
     COMMENT "Copying DepthGen model assets into DepthGen.plugin")
 endif()
 
@@ -254,6 +258,10 @@ if(DEPTHGEN_PACKAGE_RELEASE)
   if(NOT DEPTHGEN_HAS_ORT)
     message(FATAL_ERROR "DEPTHGEN_PACKAGE_RELEASE requires a pinned DEPTHGEN_ORT_ROOT.")
   endif()
+  if(NOT TARGET depthgen_build_model)
+    message(FATAL_ERROR "DEPTHGEN_PACKAGE_RELEASE requires Python 3 with the onnx package "
+      "so depthgen_build_model can regenerate the verified accelerated model.")
+  endif()
   set(DEPTHGEN_PACKAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/package/$<CONFIG>")
 	set(DEPTHGEN_ORT_NOTICE_FILES)
 	if(EXISTS "${DEPTHGEN_ORT_ROOT}/ThirdPartyNotices.txt")
@@ -269,7 +277,7 @@ if(DEPTHGEN_PACKAGE_RELEASE)
   endif()
   if(WIN32)
     add_custom_target(depthgen_package
-      DEPENDS DepthGen depthgen_fetch_model
+      DEPENDS DepthGen depthgen_build_model
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${DEPTHGEN_PACKAGE_PLATFORM_DIR}"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
@@ -288,9 +296,12 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.aex"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/"
-      COMMAND "${CMAKE_COMMAND}" -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
-        "${DEPTHGEN_PACKAGE_MODEL_DIR}"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
+        -DDEPTHGEN_MODELS_DESTINATION=${DEPTHGEN_PACKAGE_MODEL_DIR}
+        -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
+        -DDEPTHGEN_MODEL_REQUIRED=ON
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_PACKAGE_ROOT=${DEPTHGEN_PACKAGE_ROOT}
         -DDEPTHGEN_PACKAGE_NAME=${CMAKE_CURRENT_BINARY_DIR}/package/DepthGen-$<CONFIG>-Windows.zip
@@ -298,7 +309,7 @@ if(DEPTHGEN_PACKAGE_RELEASE)
       COMMENT "Staging and archiving DepthGen Windows release package")
   else()
     add_custom_target(depthgen_package
-      DEPENDS DepthGen depthgen_fetch_model
+      DEPENDS DepthGen depthgen_build_model
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${DEPTHGEN_PACKAGE_PLATFORM_DIR}"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
@@ -319,9 +330,12 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
-      COMMAND "${CMAKE_COMMAND}" -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
-        "${DEPTHGEN_PACKAGE_MODEL_DIR}"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
+        -DDEPTHGEN_MODELS_DESTINATION=${DEPTHGEN_PACKAGE_MODEL_DIR}
+        -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
+        -DDEPTHGEN_MODEL_REQUIRED=ON
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
       COMMAND codesign --force --sign - "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_BUNDLE=${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin

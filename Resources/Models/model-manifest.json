@@ -1,14 +1,23 @@
 {
-  "format": 1,
+  "format": 2,
   "model": "Depth Anything V2 Small",
   "parameter_count": "24.8M",
   "purpose": "relative monocular depth; not metric depth",
-  "filename": "depth_anything_v2_vits_dynamic.onnx",
-  "source": "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx",
-  "exporter_repository": "https://github.com/fabio-sim/Depth-Anything-ONNX",
-  "exporter_commit": "40ed31643bea3f537201aeb7752d8a16b6d6d178",
+  "filename": "depth_anything_v2_vits_dml.onnx",
+  "sha256": "237cfaaf329bc97b9914c14e2d2497b1159cc05cca1b6d7a68aa42a262ea99bf",
+  "repackaged_by": "tools/build_accelerated_model.py",
+  "repackaging": [
+    "refinenet 2x and head 1.75x bilinear Resize nodes take constant scales instead of dynamic sizes (bit-level equivalent)",
+    "the 37x37 positional-embedding table is resampled linearly instead of cubically so DirectML executes every Resize on the GPU"
+  ],
+  "upstream": {
+    "filename": "depth_anything_v2_vits_dynamic.onnx",
+    "source": "https://github.com/fabio-sim/Depth-Anything-ONNX/releases/download/v2.0.0/depth_anything_v2_vits_dynamic.onnx",
+    "exporter_repository": "https://github.com/fabio-sim/Depth-Anything-ONNX",
+    "exporter_commit": "40ed31643bea3f537201aeb7752d8a16b6d6d178",
+    "sha256": "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f"
+  },
   "source_model_repository": "https://github.com/DepthAnything/Depth-Anything-V2",
-  "sha256": "46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f",
   "model_licence": "Apache-2.0",
   "runtime_licence": "MIT"
 }

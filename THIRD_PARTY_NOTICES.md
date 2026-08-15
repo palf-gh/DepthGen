@@ -10,9 +10,13 @@ pinned runtime SDK when that file is available.
 
 - Purpose: relative monocular depth inference. It is not metric depth.
 - Upstream model implementation and Small checkpoint: <https://github.com/DepthAnything/Depth-Anything-V2>.
-- Model used by this release: `depth_anything_v2_vits_dynamic.onnx`, a FP32
-  dynamic-shape conversion of the Small model.
-- SHA-256: `46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f`.
+- Model used by this release: `depth_anything_v2_vits_dml.onnx`, a mechanically
+  repackaged FP32 conversion of the Small model produced by
+  `tools/build_accelerated_model.py` from the hash-verified upstream export
+  (constant-scale bilinear upsamples; linear positional-embedding resampling,
+  so every Resize runs on the GPU under DirectML). Weights are unchanged.
+- SHA-256 (shipped repackage): `237cfaaf329bc97b9914c14e2d2497b1159cc05cca1b6d7a68aa42a262ea99bf`.
+- SHA-256 (upstream export input): `46c4e8eeda3a27f34701831b6a2ec7753d7b38779b215acb5633424703deed8f`.
 - Licence text: `third_party/licenses/Apache-2.0.txt`.
 - Attribution: Depth Anything V2, Lihe Yang, Bingyi Kang, Zilong Huang, Zhen
   Zhao, Xiaogang Xu, Jiashi Feng, and Hengshuang Zhao (2024).
