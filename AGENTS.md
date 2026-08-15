@@ -17,6 +17,10 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
 ## Compatibility contract
 
 - Display name is `DepthGen`; Match Name is `PALF DepthGen`.
+- Debug builds use a separate identity so they can load beside Release:
+  display name `DepthGen debug`, Match Name `PALF DepthGen debug`, and
+  filename `DepthGen_debug.aex` / `DepthGen_debug.plugin`. Do not change
+  the Release identity.
 - `DepthGenParamID` values, PiPL identity, package layout, model manifest
   schema, and resource filenames are persisted/distribution interfaces. Append
   parameter IDs only; never renumber or reuse one.
@@ -40,12 +44,19 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
 
 ## AE parameter UI
 
-Advanced controls are initially hidden. Follow
-`../.agents/skills/ae-initially-hidden-params/SKILL.md`: create them with
-`PF_PUI_INVISIBLE`, register with AEGP, and set
-`AEGP_DynStreamFlag_HIDDEN` from sequence setup/resetup and UI updates. Do not
-toggle `PF_PUI_INVISIBLE` at runtime. Keep the supervisor and persisted IDs
-stable.
+Advanced controls live in a collapsed topic group (`Advanced` / `詳細設定` /
+`高级` / `고급`). Do not show or hide them with a checkbox or AEGP `HIDDEN`.
+`DEPTHGEN_SHOW_ADVANCED` is retained as a permanently invisible leftover ID
+so existing projects stay compatible; never reuse or renumber it.
+
+Checkout, UI, and AEGP stream indices come from `ParamIndexFromID(id)` via
+`kDepthGenParamOrder[]`. Do not treat persisted IDs as `params[]` indices.
+
+`Quality` pixel labels are full-resolution short-edge sizes. SmartFX must
+checkout the downsampled full frame (`DepthGenRenderWidth` /
+`DepthGenRenderHeight`); `PF_InData::width` / `height` remain full-resolution.
+Scale the labelled short edge with `ScaleShortEdgeToRender` before
+`ComputeInferenceSize`. Disable Custom Short Edge unless Quality is Custom.
 
 ## Validation and records
 

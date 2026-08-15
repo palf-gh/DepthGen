@@ -146,14 +146,28 @@ std::vector<float> ResizeRgbForInference(
 template <typename Pixel>
 void WriteDepthWorld(
 	PF_EffectWorld* output_world,
+	const PF_EffectWorld* input_world,
 	const std::vector<float>& depth,
 	const std::vector<float>& source_alpha,
 	bool preserve_alpha) {
+	if (!output_world || !input_world || input_world->width <= 0 || input_world->height <= 0) {
+		return;
+	}
 	for (A_long y = 0; y < output_world->height; ++y) {
 		for (A_long x = 0; x < output_world->width; ++x) {
-			const size_t index = static_cast<size_t>(y) * output_world->width + x;
-			const float alpha = preserve_alpha ? source_alpha[index] : 1.0f;
-			const float value = source_alpha[index] <= kAlphaEpsilon ? 0.0f : depth[index];
+			const A_long src_x = x + output_world->origin_x - input_world->origin_x;
+			const A_long src_y = y + output_world->origin_y - input_world->origin_y;
+			float value = 0.0f;
+			float alpha = preserve_alpha ? 0.0f : 1.0f;
+			if (src_x >= 0 && src_x < input_world->width &&
+				src_y >= 0 && src_y < input_world->height) {
+				const size_t index = static_cast<size_t>(src_y) * static_cast<size_t>(input_world->width) +
+					static_cast<size_t>(src_x);
+				if (index < depth.size() && index < source_alpha.size()) {
+					alpha = preserve_alpha ? source_alpha[index] : 1.0f;
+					value = source_alpha[index] <= kAlphaEpsilon ? 0.0f : depth[index];
+				}
+			}
 			WritePixel(PixelAt<Pixel>(output_world, x, y), value, alpha);
 		}
 	}
@@ -173,7 +187,7 @@ PF_Err ReadSettings(PF_InData* in_data, DepthGenRenderSettings* settings) {
 	};
 	auto checkin = [&]() { (void)PF_CHECKIN_PARAM(in_data, &parameter); };
 
-	if (checkout(DEPTHGEN_QUALITY)) {
+	if (checkout(ParamIndexFromID(DEPTHGEN_QUALITY))) {
 		switch (parameter.u.pd.value) {
 		case DEPTHGEN_QUALITY_FAST: settings->short_edge = DEPTHGEN_FAST_SHORT_EDGE; break;
 		case DEPTHGEN_QUALITY_HIGH: settings->short_edge = DEPTHGEN_HIGH_SHORT_EDGE; break;
@@ -182,13 +196,13 @@ PF_Err ReadSettings(PF_InData* in_data, DepthGenRenderSettings* settings) {
 		}
 		checkin();
 	}
-	if (checkout(DEPTHGEN_CUSTOM_SHORT_EDGE)) {
+	if (checkout(ParamIndexFromID(DEPTHGEN_CUSTOM_SHORT_EDGE))) {
 		const A_long custom = static_cast<A_long>(std::lround(parameter.u.fs_d.value));
 		if (settings->short_edge == DEPTHGEN_BALANCED_SHORT_EDGE) {
 			// Custom can replace the default only when the popup selected it.
 			PF_ParamDef quality{};
-			if (PF_CHECKOUT_PARAM(in_data, DEPTHGEN_QUALITY, in_data->current_time, in_data->time_step,
-				in_data->time_scale, &quality) == PF_Err_NONE) {
+			if (PF_CHECKOUT_PARAM(in_data, ParamIndexFromID(DEPTHGEN_QUALITY), in_data->current_time,
+				in_data->time_step, in_data->time_scale, &quality) == PF_Err_NONE) {
 				if (quality.u.pd.value == DEPTHGEN_QUALITY_CUSTOM) {
 					settings->short_edge = std::max(DEPTHGEN_CUSTOM_EDGE_MIN,
 						std::min(DEPTHGEN_CUSTOM_EDGE_MAX, custom));
@@ -198,14 +212,14 @@ PF_Err ReadSettings(PF_InData* in_data, DepthGenRenderSettings* settings) {
 		}
 		checkin();
 	}
-	if (checkout(DEPTHGEN_FAR_PERCENTILE)) { settings->far_percentile = static_cast<float>(parameter.u.fs_d.value); checkin(); }
-	if (checkout(DEPTHGEN_NEAR_PERCENTILE)) { settings->near_percentile = static_cast<float>(parameter.u.fs_d.value); checkin(); }
-	if (checkout(DEPTHGEN_CONTRAST)) { settings->contrast = static_cast<float>(parameter.u.fs_d.value); checkin(); }
-	if (checkout(DEPTHGEN_INVERT)) { settings->invert = parameter.u.bd.value != 0; checkin(); }
-	if (checkout(DEPTHGEN_INPUT_TRANSFER)) { settings->linear_to_srgb = parameter.u.pd.value == DEPTHGEN_TRANSFER_LINEAR_TO_SRGB; checkin(); }
-	if (checkout(DEPTHGEN_USE_ALPHA_FOR_LEVELS)) { settings->use_alpha_for_levels = parameter.u.bd.value != 0; checkin(); }
-	if (checkout(DEPTHGEN_ALPHA_THRESHOLD)) { settings->alpha_threshold = static_cast<float>(parameter.u.fs_d.value) / 100.0f; checkin(); }
-	if (checkout(DEPTHGEN_OUTPUT_ALPHA)) { settings->preserve_alpha = parameter.u.pd.value != DEPTHGEN_ALPHA_OPAQUE; checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_FAR_PERCENTILE))) { settings->far_percentile = static_cast<float>(parameter.u.fs_d.value); checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_NEAR_PERCENTILE))) { settings->near_percentile = static_cast<float>(parameter.u.fs_d.value); checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_CONTRAST))) { settings->contrast = static_cast<float>(parameter.u.fs_d.value); checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_INVERT))) { settings->invert = parameter.u.bd.value != 0; checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_INPUT_TRANSFER))) { settings->linear_to_srgb = parameter.u.pd.value == DEPTHGEN_TRANSFER_LINEAR_TO_SRGB; checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_USE_ALPHA_FOR_LEVELS))) { settings->use_alpha_for_levels = parameter.u.bd.value != 0; checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_ALPHA_THRESHOLD))) { settings->alpha_threshold = static_cast<float>(parameter.u.fs_d.value) / 100.0f; checkin(); }
+	if (checkout(ParamIndexFromID(DEPTHGEN_OUTPUT_ALPHA))) { settings->preserve_alpha = parameter.u.pd.value != DEPTHGEN_ALPHA_OPAQUE; checkin(); }
 	settings->far_percentile = std::max(0.0f, std::min(100.0f, settings->far_percentile));
 	settings->near_percentile = std::max(0.0f, std::min(100.0f, settings->near_percentile));
 	settings->contrast = std::max(0.01f, std::min(4.0f, settings->contrast));
@@ -265,31 +279,33 @@ PF_Err ParamsSetup(PF_InData* in_data, PF_OutData* out_data) {
 	AEFX_CLR_STRUCT(def);
 	PF_ADD_CHECKBOX(GetString(DepthGenString::Invert, in_data), "On", FALSE, 0, DEPTHGEN_INVERT);
 	AEFX_CLR_STRUCT(def);
-	def.flags = PF_ParamFlag_SUPERVISE | PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;
+	def.ui_flags = PF_PUI_INVISIBLE;
+	def.flags = PF_ParamFlag_CANNOT_TIME_VARY | PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;
 	PF_ADD_CHECKBOX(GetString(DepthGenString::ShowAdvanced, in_data), "On", FALSE, 0, DEPTHGEN_SHOW_ADVANCED);
 
-	// Advanced controls begin invisible. Runtime uses AEGP dynamic stream flags.
 	AEFX_CLR_STRUCT(def);
-	def.ui_flags = PF_PUI_INVISIBLE;
-	PF_ADD_FLOAT_SLIDERX(GetString(DepthGenString::CustomShortEdge, in_data), DEPTHGEN_CUSTOM_EDGE_MIN,
-		DEPTHGEN_CUSTOM_EDGE_MAX, DEPTHGEN_CUSTOM_EDGE_MIN, DEPTHGEN_CUSTOM_EDGE_MAX,
-		DEPTHGEN_BALANCED_SHORT_EDGE, 0, PF_ValueDisplayFlag_NONE, 0, DEPTHGEN_CUSTOM_SHORT_EDGE);
+	PF_ADD_TOPICX(GetString(DepthGenString::AdvancedGroup, in_data),
+		PF_ParamFlag_CANNOT_TIME_VARY | PF_ParamFlag_COLLAPSE_TWIRLY,
+		DEPTHGEN_GRP_ADVANCED_START);
 	AEFX_CLR_STRUCT(def);
-	def.ui_flags = PF_PUI_INVISIBLE;
+	PF_ADD_FLOAT_SLIDERX_DISABLED(GetString(DepthGenString::CustomShortEdge, in_data),
+		DEPTHGEN_CUSTOM_EDGE_MIN, DEPTHGEN_CUSTOM_EDGE_MAX, DEPTHGEN_CUSTOM_EDGE_MIN,
+		DEPTHGEN_CUSTOM_EDGE_MAX, DEPTHGEN_BALANCED_SHORT_EDGE, 0, PF_ValueDisplayFlag_NONE, 0,
+		DEPTHGEN_CUSTOM_SHORT_EDGE);
+	AEFX_CLR_STRUCT(def);
 	PF_ADD_POPUP(GetString(DepthGenString::InputTransfer, in_data), 2, DEPTHGEN_TRANSFER_SRGB,
 		GetString(DepthGenString::InputTransferItems, in_data), DEPTHGEN_INPUT_TRANSFER);
 	AEFX_CLR_STRUCT(def);
-	def.ui_flags = PF_PUI_INVISIBLE;
 	PF_ADD_CHECKBOX(GetString(DepthGenString::UseAlpha, in_data), "On", TRUE, 0, DEPTHGEN_USE_ALPHA_FOR_LEVELS);
 	AEFX_CLR_STRUCT(def);
-	def.ui_flags = PF_PUI_INVISIBLE;
 	PF_ADD_FLOAT_SLIDERX(GetString(DepthGenString::AlphaThreshold, in_data), 0, 100, 0, 100, 0, 1,
 		PF_ValueDisplayFlag_PERCENT, 0, DEPTHGEN_ALPHA_THRESHOLD);
 	AEFX_CLR_STRUCT(def);
-	def.ui_flags = PF_PUI_INVISIBLE;
 	PF_ADD_POPUP(GetString(DepthGenString::OutputAlpha, in_data), 2, DEPTHGEN_ALPHA_PRESERVE,
 		GetString(DepthGenString::OutputAlphaItems, in_data), DEPTHGEN_OUTPUT_ALPHA);
-	out_data->num_params = DEPTHGEN_NUM_PARAMS;
+	AEFX_CLR_STRUCT(def);
+	PF_END_TOPIC(DEPTHGEN_GRP_ADVANCED_END);
+	out_data->num_params = kDepthGenParamOrderCount;
 	return PF_Err_NONE;
 }
 
@@ -298,18 +314,31 @@ PF_Err PreRender(PF_InData* in_data, PF_PreRenderExtra* extra) {
 	auto data = std::make_unique<DepthGenPreRenderData>();
 	PF_Err err = ReadSettings(in_data, &data->settings);
 	if (err) return err;
+	const A_long render_width = DepthGenRenderWidth(in_data);
+	const A_long render_height = DepthGenRenderHeight(in_data);
+	if (render_width <= 0 || render_height <= 0) {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
 	PF_RenderRequest request = extra->input->output_request;
+	const PF_LRect requested = request.rect;
 	request.rect.left = 0;
 	request.rect.top = 0;
-	request.rect.right = in_data->width;
-	request.rect.bottom = in_data->height;
+	request.rect.right = render_width;
+	request.rect.bottom = render_height;
 	request.field = PF_Field_FRAME;
+	request.preserve_rgb_of_zero_alpha = TRUE;
 	PF_CheckoutResult checkout{};
-	err = extra->cb->checkout_layer(in_data->effect_ref, DEPTHGEN_INPUT, DEPTHGEN_INPUT, &request,
-		in_data->current_time, in_data->time_step, in_data->time_scale, &checkout);
+	err = extra->cb->checkout_layer(in_data->effect_ref, ParamIndexFromID(DEPTHGEN_INPUT),
+		DEPTHGEN_INPUT, &request, in_data->current_time, in_data->time_step, in_data->time_scale,
+		&checkout);
 	if (err) return err;
+	(void)checkout;
 	extra->output->result_rect = request.rect;
 	extra->output->max_result_rect = request.rect;
+	if (requested.left != request.rect.left || requested.top != request.rect.top ||
+		requested.right != request.rect.right || requested.bottom != request.rect.bottom) {
+		extra->output->flags |= PF_RenderOutputFlag_RETURNS_EXTRA_PIXELS;
+	}
 	extra->output->pre_render_data = data.release();
 	extra->output->delete_pre_render_data_func = DisposePreRenderData;
 	return PF_Err_NONE;
@@ -344,10 +373,10 @@ PF_Err DepthGen_RenderWorld(
 	PF_EffectWorld* input_world,
 	PF_EffectWorld* output_world,
 	const DepthGenRenderSettings& settings) {
-	(void)in_data;
-	(void)out_data;
-	if (!input_world || !output_world || input_world->width != output_world->width ||
-		input_world->height != output_world->height) return PF_Err_BAD_CALLBACK_PARAM;
+	if (!input_world || !output_world || input_world->width <= 0 || input_world->height <= 0 ||
+		output_world->width <= 0 || output_world->height <= 0) {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
 	std::vector<float> rgb;
 	std::vector<float> alpha;
 	switch (pixel_format) {
@@ -358,8 +387,23 @@ PF_Err DepthGen_RenderWorld(
 	}
 	int inference_width = 0;
 	int inference_height = 0;
-	depthgen::ComputeInferenceSize(input_world->width, input_world->height, settings.short_edge,
+	const A_long full_width = (in_data && in_data->width > 0) ? in_data->width : input_world->width;
+	const A_long full_height = (in_data && in_data->height > 0) ? in_data->height : input_world->height;
+	A_long render_width = DepthGenRenderWidth(in_data);
+	A_long render_height = DepthGenRenderHeight(in_data);
+	if (render_width <= 0) {
+		render_width = input_world->width;
+	}
+	if (render_height <= 0) {
+		render_height = input_world->height;
+	}
+	const int short_edge = depthgen::ScaleShortEdgeToRender(
+		full_width, full_height, render_width, render_height, settings.short_edge);
+	depthgen::ComputeInferenceSize(input_world->width, input_world->height, short_edge,
 		&inference_width, &inference_height);
+	if (inference_width <= 0 || inference_height <= 0) {
+		return PF_Err_BAD_CALLBACK_PARAM;
+	}
 	std::vector<float> inference_rgb = ResizeRgbForInference(rgb, input_world->width, input_world->height,
 		inference_width, inference_height);
 	depthgen::InferenceResult result;
@@ -382,9 +426,15 @@ PF_Err DepthGen_RenderWorld(
 		settings.use_alpha_for_levels, settings.far_percentile, settings.near_percentile,
 		settings.contrast, settings.invert);
 	switch (pixel_format) {
-	case PF_PixelFormat_ARGB32: WriteDepthWorld<PF_Pixel>(output_world, full_depth.values, alpha, settings.preserve_alpha); break;
-	case PF_PixelFormat_ARGB64: WriteDepthWorld<PF_Pixel16>(output_world, full_depth.values, alpha, settings.preserve_alpha); break;
-	case PF_PixelFormat_ARGB128: WriteDepthWorld<PF_PixelFloat>(output_world, full_depth.values, alpha, settings.preserve_alpha); break;
+	case PF_PixelFormat_ARGB32:
+		WriteDepthWorld<PF_Pixel>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		break;
+	case PF_PixelFormat_ARGB64:
+		WriteDepthWorld<PF_Pixel16>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		break;
+	case PF_PixelFormat_ARGB128:
+		WriteDepthWorld<PF_PixelFloat>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		break;
 	default: break;
 	}
 	return PF_Err_NONE;
@@ -438,13 +488,12 @@ PF_Err EffectMain(
 	case PF_Cmd_SMART_PRE_RENDER: return PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra));
 	case PF_Cmd_SMART_RENDER: return SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra));
 	case PF_Cmd_USER_CHANGED_PARAM:
-		if (extra && reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index == DEPTHGEN_SHOW_ADVANCED) {
+		if (extra && reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index ==
+			ParamIndexFromID(DEPTHGEN_QUALITY)) {
 			return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
 		}
 		return PF_Err_NONE;
 	case PF_Cmd_UPDATE_PARAMS_UI:
-	case PF_Cmd_SEQUENCE_SETUP:
-	case PF_Cmd_SEQUENCE_RESETUP:
 		return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
 	default: return PF_Err_NONE;
 	}

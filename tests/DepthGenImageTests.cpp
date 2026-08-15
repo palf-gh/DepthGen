@@ -63,6 +63,16 @@ int main() {
 
 	Require(Near(depthgen::LinearToSrgb(0.0f), 0.0f) && Near(depthgen::LinearToSrgb(1.0f), 1.0f),
 		"sRGB transfer must retain endpoints");
+
+	Require(depthgen::ScaleShortEdgeToRender(1920, 1080, 1920, 1080, 518) == 518,
+		"full-resolution short edge must be unchanged");
+	Require(depthgen::ScaleShortEdgeToRender(1920, 1080, 960, 540, 518) == 259,
+		"half-resolution preview must scale the labelled short edge");
+	depthgen::ComputeInferenceSize(0, 1080, 518, &width, &height);
+	Require(width == 0 && height == 0, "invalid source must yield a zero inference size");
+	depthgen::ComputeInferenceSize(960, 540, 259, &width, &height);
+	Require(width == 462 && height == 266, "half-resolution Balanced size must stay patch-aligned");
+
 	std::cout << "DepthGen image-pipeline tests passed\n";
 	return 0;
 }

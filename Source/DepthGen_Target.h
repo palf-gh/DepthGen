@@ -1,8 +1,13 @@
 // Shared PiPL and C++ identity constants. Keep this preprocessor-only.
 #pragma once
 
+#if defined(_DEBUG) || defined(DEBUG) || defined(DEPTHGEN_DEBUG_BUILD)
+#define DEPTHGEN_NAME "DepthGen debug"
+#define DEPTHGEN_MATCH_NAME "PALF DepthGen debug"
+#else
 #define DEPTHGEN_NAME "DepthGen"
 #define DEPTHGEN_MATCH_NAME "PALF DepthGen"
+#endif
 #define DEPTHGEN_CATEGORY "3D Channel"
 #define DEPTHGEN_DESCRIPTION "\nRelative depth-map generation powered by Depth Anything V2 Small."
 #define DEPTHGEN_SUPPORT_URL "https://github.com/PALF-MovieWorks/DepthGen"
@@ -10,6 +15,10 @@
 // The PiPL floor intentionally matches AE 2022-era SmartFX/MFR support.
 #define DEPTHGEN_PIPL_SPEC_VERSION 13
 #define DEPTHGEN_PIPL_SPEC_SUBVERS 27
+// AE_Effect_Support_URL arrived with API 13.28. Omit it from the PiPL so AE
+// 2023.0-23.3 still recognise the plug-in; PluginDataEntryFunction2 still
+// supplies the URL on newer hosts.
+#define DEPTHGEN_PIPL_HAS_SUPPORT_URL 0
 #define DEPTHGEN_VERSION_MAJOR 1
 #define DEPTHGEN_VERSION_MINOR 0
 #define DEPTHGEN_VERSION_BUG 0

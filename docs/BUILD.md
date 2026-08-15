@@ -15,6 +15,11 @@ cmake --build build/Win --config Release
 ctest --test-dir build/Win -C Release --output-on-failure
 ```
 
+Debug builds write `DepthGen_debug.aex` / `DepthGen_debug.plugin` with display
+name `DepthGen debug` and Match Name `PALF DepthGen debug`, so they can load
+beside the Release plug-in. Release output names stay `DepthGen.aex` /
+`DepthGen.plugin`.
+
 macOS:
 
 ```sh
@@ -61,16 +66,20 @@ test override.
 
 ## Model asset
 
-With a configured release build, run:
+The effect looks for `Resources/Models/depth_anything_v2_vits_dynamic.onnx`
+beside the Windows `.aex`, or inside the macOS bundle. Fetch it once into the
+source tree (the `.onnx` is gitignored), then rebuild so POST_BUILD copies it
+next to the plug-in:
 
 ```powershell
 cmake --build build/Win --target depthgen_fetch_model
+cmake --build build/Win --config Release --target DepthGen
 ```
 
 The target downloads only the declared Dynamic Small model and validates its
-SHA-256 before leaving it in the build/package staging directory. Do not copy
-an unverified file into `Resources/Models`; retain `model-manifest.json` and
-`THIRD_PARTY_NOTICES.md` beside every binary distribution.
+SHA-256. Do not copy an unverified file into `Resources/Models`; retain
+`model-manifest.json` and `THIRD_PARTY_NOTICES.md` beside every binary
+distribution.
 
 ## Release gate
 

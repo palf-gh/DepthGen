@@ -30,6 +30,7 @@ if(NOT EXISTS "${AESDK_ROOT}/Headers")
 endif()
 
 include(cmake/DepthGenAssets.cmake)
+depthgen_add_model_target("${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models")
 
 set(DEPTHGEN_SOURCES
   Source/DepthGen.h
@@ -116,47 +117,103 @@ if(DEPTHGEN_HAS_ORT)
   endif()
 endif()
 
+if(WIN32)
+  add_custom_command(TARGET DepthGen POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
+      "$<TARGET_FILE_DIR:DepthGen>/Resources/Models"
+    COMMENT "Copying DepthGen model assets beside DepthGen.aex")
+elseif(APPLE)
+  add_custom_command(TARGET DepthGen POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+      "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
+      "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/Models"
+    COMMENT "Copying DepthGen model assets into DepthGen.plugin")
+endif()
+
+# Debug builds use a distinct AE identity and filename so they can sit beside Release.
+set(DEPTHGEN_OUTPUT_NAME "$<IF:$<CONFIG:Debug>,DepthGen_debug,DepthGen>")
+
 set(PIPL_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/PiPL/DepthGenPiPL.r")
 set(TARGET_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Source/DepthGen_Target.h")
+set(PIPL_I_DEBUG "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Debug.i")
+set(PIPL_I_RELEASE "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Release.i")
 if(WIN32)
-  set(PIPL_I "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL.i")
-  set(PIPL_RSRC "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL.rsrc")
-  add_custom_command(OUTPUT "${PIPL_I}"
+  set(PIPL_RC_DEBUG "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Debug.rc")
+  set(PIPL_RC_RELEASE "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Release.rc")
+  add_custom_command(OUTPUT "${PIPL_I_DEBUG}"
     COMMAND "${CMAKE_COMMAND}"
       -DDEPTHGEN_PIPL_COMPILER=${CMAKE_CXX_COMPILER}
-      -DDEPTHGEN_PIPL_OUTPUT=${PIPL_I}
+      -DDEPTHGEN_PIPL_OUTPUT=${PIPL_I_DEBUG}
+      -DDEPTHGEN_PIPL_SOURCE=${PIPL_SOURCE}
+      -DDEPTHGEN_PIPL_AESDK=${AESDK_ROOT}
+      -DDEPTHGEN_PIPL_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
+      -DDEPTHGEN_PIPL_DEBUG=1
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/preprocess_pipl_win.cmake"
+    DEPENDS "${PIPL_SOURCE}" "${TARGET_HEADER}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/preprocess_pipl_win.cmake"
+    COMMENT "Preprocessing DepthGen PiPL (Debug)")
+  add_custom_command(OUTPUT "${PIPL_I_RELEASE}"
+    COMMAND "${CMAKE_COMMAND}"
+      -DDEPTHGEN_PIPL_COMPILER=${CMAKE_CXX_COMPILER}
+      -DDEPTHGEN_PIPL_OUTPUT=${PIPL_I_RELEASE}
       -DDEPTHGEN_PIPL_SOURCE=${PIPL_SOURCE}
       -DDEPTHGEN_PIPL_AESDK=${AESDK_ROOT}
       -DDEPTHGEN_PIPL_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/preprocess_pipl_win.cmake"
     DEPENDS "${PIPL_SOURCE}" "${TARGET_HEADER}"
-    COMMENT "Preprocessing DepthGen PiPL")
-  add_custom_command(OUTPUT "${PIPL_RSRC}"
-    COMMAND "${AESDK_ROOT}/Resources/PiPLtool.exe" "${PIPL_I}" "${PIPL_RSRC}"
-    DEPENDS "${PIPL_I}"
-    COMMENT "Compiling DepthGen PiPL")
-  add_custom_target(DepthGen_pipl DEPENDS "${PIPL_RSRC}")
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/preprocess_pipl_win.cmake"
+    COMMENT "Preprocessing DepthGen PiPL (Release)")
+  add_custom_command(OUTPUT "${PIPL_RC_DEBUG}"
+    COMMAND "${AESDK_ROOT}/Resources/PiPLtool.exe" "${PIPL_I_DEBUG}" "${PIPL_RC_DEBUG}"
+    DEPENDS "${PIPL_I_DEBUG}"
+    COMMENT "Compiling DepthGen PiPL (Debug)")
+  add_custom_command(OUTPUT "${PIPL_RC_RELEASE}"
+    COMMAND "${AESDK_ROOT}/Resources/PiPLtool.exe" "${PIPL_I_RELEASE}" "${PIPL_RC_RELEASE}"
+    DEPENDS "${PIPL_I_RELEASE}"
+    COMMENT "Compiling DepthGen PiPL (Release)")
+  add_custom_target(DepthGen_pipl DEPENDS "${PIPL_RC_DEBUG}" "${PIPL_RC_RELEASE}")
   add_dependencies(DepthGen DepthGen_pipl)
-  set_target_properties(DepthGen PROPERTIES PREFIX "" SUFFIX ".aex" OUTPUT_NAME "DepthGen")
-  target_sources(DepthGen PRIVATE "${PIPL_RSRC}")
+  set_target_properties(DepthGen PROPERTIES PREFIX "" SUFFIX ".aex" OUTPUT_NAME "${DEPTHGEN_OUTPUT_NAME}"
+    LINK_FLAGS "/EXPORT:EffectMain")
+  target_compile_definitions(DepthGen PRIVATE MSWindows _WINDOWS)
+  target_sources(DepthGen PRIVATE "$<IF:$<CONFIG:Debug>,${PIPL_RC_DEBUG},${PIPL_RC_RELEASE}>")
   set(DEPTHGEN_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/Win/$<CONFIG>")
 elseif(APPLE)
   find_program(REZ_TOOL Rez REQUIRED)
-  set(PIPL_I "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL.i")
-  set(PIPL_RSRC "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL.rsrc")
-  add_custom_command(OUTPUT "${PIPL_I}"
+  set(PIPL_RSRC_DEBUG "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Debug.rsrc")
+  set(PIPL_RSRC_RELEASE "${CMAKE_CURRENT_BINARY_DIR}/DepthGenPiPL_Release.rsrc")
+  add_custom_command(OUTPUT "${PIPL_I_DEBUG}"
     COMMAND "${CMAKE_CXX_COMPILER}" -E -P -x c
       -I "${AESDK_ROOT}/Headers" -I "${AESDK_ROOT}/Resources" -I "${CMAKE_CURRENT_SOURCE_DIR}/Source"
-      -D__MACH__ -DAE_OS_MAC -o "${PIPL_I}" "${PIPL_SOURCE}"
+      -D__MACH__ -DAE_OS_MAC -DDEBUG=1 -DDEPTHGEN_DEBUG_BUILD=1
+      -o "${PIPL_I_DEBUG}" "${PIPL_SOURCE}"
     DEPENDS "${PIPL_SOURCE}" "${TARGET_HEADER}")
-  add_custom_command(OUTPUT "${PIPL_RSRC}"
-    COMMAND "${REZ_TOOL}" -o "${PIPL_RSRC}" -useDF
-      -i "${AESDK_ROOT}/Headers" -i "${AESDK_ROOT}/Resources" -i "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${PIPL_I}"
-    DEPENDS "${PIPL_I}")
-  add_custom_target(DepthGen_pipl DEPENDS "${PIPL_RSRC}")
+  add_custom_command(OUTPUT "${PIPL_I_RELEASE}"
+    COMMAND "${CMAKE_CXX_COMPILER}" -E -P -x c
+      -I "${AESDK_ROOT}/Headers" -I "${AESDK_ROOT}/Resources" -I "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+      -D__MACH__ -DAE_OS_MAC
+      -o "${PIPL_I_RELEASE}" "${PIPL_SOURCE}"
+    DEPENDS "${PIPL_SOURCE}" "${TARGET_HEADER}")
+  add_custom_command(OUTPUT "${PIPL_RSRC_DEBUG}"
+    COMMAND "${REZ_TOOL}" -o "${PIPL_RSRC_DEBUG}" -useDF
+      -i "${AESDK_ROOT}/Headers" -i "${AESDK_ROOT}/Resources" -i "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${PIPL_I_DEBUG}"
+    DEPENDS "${PIPL_I_DEBUG}")
+  add_custom_command(OUTPUT "${PIPL_RSRC_RELEASE}"
+    COMMAND "${REZ_TOOL}" -o "${PIPL_RSRC_RELEASE}" -useDF
+      -i "${AESDK_ROOT}/Headers" -i "${AESDK_ROOT}/Resources" -i "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${PIPL_I_RELEASE}"
+    DEPENDS "${PIPL_I_RELEASE}")
+  add_custom_target(DepthGen_pipl DEPENDS "${PIPL_RSRC_DEBUG}" "${PIPL_RSRC_RELEASE}")
   add_dependencies(DepthGen DepthGen_pipl)
+  set(BUNDLE_EXECUTABLE "DepthGen")
+  set(BUNDLE_NAME "DepthGen")
+  set(BUNDLE_IDENTIFIER "com.palf.depthgen")
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Mac/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" @ONLY)
-  set_target_properties(DepthGen PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION "plugin" OUTPUT_NAME "DepthGen"
+  set(BUNDLE_EXECUTABLE "DepthGen_debug")
+  set(BUNDLE_NAME "DepthGen debug")
+  set(BUNDLE_IDENTIFIER "com.palf.depthgen.debug")
+  configure_file("${CMAKE_CURRENT_SOURCE_DIR}/Mac/Info.plist.in" "${CMAKE_CURRENT_BINARY_DIR}/Info_Debug.plist" @ONLY)
+  set_target_properties(DepthGen PROPERTIES BUNDLE TRUE BUNDLE_EXTENSION "plugin" OUTPUT_NAME "${DEPTHGEN_OUTPUT_NAME}"
     MACOSX_BUNDLE_GUI_IDENTIFIER "com.palf.depthgen" OSX_ARCHITECTURES "x86_64;arm64"
     # The executable is Contents/MacOS/DepthGen and the embedded runtime is
     # Contents/Frameworks. Keep this in the final binary as well as in the
@@ -164,14 +221,18 @@ elseif(APPLE)
     BUILD_RPATH "@loader_path/../Frameworks"
     INSTALL_RPATH "@loader_path/../Frameworks")
   target_link_options(DepthGen PRIVATE
-    "-Wl,-sectcreate,__TEXT,__plgin,${PIPL_RSRC}"
+    "-Wl,-sectcreate,__TEXT,__plgin,$<IF:$<CONFIG:Debug>,${PIPL_RSRC_DEBUG},${PIPL_RSRC_RELEASE}>"
     "-Wl,-rpath,@loader_path/../Frameworks")
   find_library(COCOA_LIBRARY Cocoa REQUIRED)
   target_link_libraries(DepthGen PRIVATE "${COCOA_LIBRARY}")
   add_custom_command(TARGET DepthGen POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/Models"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${CMAKE_CURRENT_BINARY_DIR}/Info.plist" "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Info.plist"
-    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${PIPL_RSRC}" "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/DepthGenPiPL.rsrc"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<IF:$<CONFIG:Debug>,${CMAKE_CURRENT_BINARY_DIR}/Info_Debug.plist,${CMAKE_CURRENT_BINARY_DIR}/Info.plist>"
+      "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Info.plist"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<IF:$<CONFIG:Debug>,${PIPL_RSRC_DEBUG},${PIPL_RSRC_RELEASE}>"
+      "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/DepthGenPiPL.rsrc"
     COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:DepthGen>")
   set(DEPTHGEN_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/Mac/$<CONFIG>")
 else()
@@ -205,7 +266,6 @@ if(DEPTHGEN_PACKAGE_RELEASE)
     set(DEPTHGEN_PACKAGE_MODEL_DIR
       "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Resources/Models")
   endif()
-  depthgen_add_model_target("${DEPTHGEN_PACKAGE_MODEL_DIR}")
   if(WIN32)
     add_custom_target(depthgen_package
       DEPENDS DepthGen depthgen_fetch_model
@@ -214,9 +274,6 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_ja.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_zh_CN.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_ko_KR.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models/model-manifest.json"
 		${DEPTHGEN_ORT_NOTICE_FILES}
         "${DEPTHGEN_PACKAGE_ROOT}/"
@@ -230,6 +287,9 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.aex"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/"
+      COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
+        "${DEPTHGEN_PACKAGE_MODEL_DIR}"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_PACKAGE_ROOT=${DEPTHGEN_PACKAGE_ROOT}
         -DDEPTHGEN_PACKAGE_NAME=${CMAKE_CURRENT_BINARY_DIR}/package/DepthGen-$<CONFIG>-Windows.zip
@@ -243,9 +303,6 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_ja.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_zh_CN.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/README_ko_KR.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models/model-manifest.json"
 		${DEPTHGEN_ORT_NOTICE_FILES}
         "${DEPTHGEN_PACKAGE_ROOT}/"
@@ -261,6 +318,9 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
+      COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models"
+        "${DEPTHGEN_PACKAGE_MODEL_DIR}"
       COMMAND codesign --force --sign - "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_BUNDLE=${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin

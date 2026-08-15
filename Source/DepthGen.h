@@ -28,14 +28,68 @@ enum DepthGenParamID {
 	DEPTHGEN_NEAR_PERCENTILE,
 	DEPTHGEN_CONTRAST,
 	DEPTHGEN_INVERT,
-	DEPTHGEN_SHOW_ADVANCED,
+	DEPTHGEN_SHOW_ADVANCED, // retained, permanently invisible; replaced by the Advanced topic
 	DEPTHGEN_CUSTOM_SHORT_EDGE,
 	DEPTHGEN_INPUT_TRANSFER,
 	DEPTHGEN_USE_ALPHA_FOR_LEVELS,
 	DEPTHGEN_ALPHA_THRESHOLD,
 	DEPTHGEN_OUTPUT_ALPHA,
-	DEPTHGEN_NUM_PARAMS
+	DEPTHGEN_GRP_ADVANCED_START,
+	DEPTHGEN_GRP_ADVANCED_END,
+	DEPTHGEN_ID_COUNT
 };
+
+// Registration / params[] / checkout order. IDs stay put; only this array moves.
+inline constexpr A_long kDepthGenParamOrder[] = {
+	DEPTHGEN_INPUT,
+	DEPTHGEN_QUALITY,
+	DEPTHGEN_FAR_PERCENTILE,
+	DEPTHGEN_NEAR_PERCENTILE,
+	DEPTHGEN_CONTRAST,
+	DEPTHGEN_INVERT,
+	DEPTHGEN_SHOW_ADVANCED,
+	DEPTHGEN_GRP_ADVANCED_START,
+	DEPTHGEN_CUSTOM_SHORT_EDGE,
+	DEPTHGEN_INPUT_TRANSFER,
+	DEPTHGEN_USE_ALPHA_FOR_LEVELS,
+	DEPTHGEN_ALPHA_THRESHOLD,
+	DEPTHGEN_OUTPUT_ALPHA,
+	DEPTHGEN_GRP_ADVANCED_END};
+inline constexpr A_long kDepthGenParamOrderCount =
+	static_cast<A_long>(sizeof(kDepthGenParamOrder) / sizeof(kDepthGenParamOrder[0]));
+
+inline A_long ParamIndexFromID(A_long id) {
+	for (A_long index = 0; index < kDepthGenParamOrderCount; ++index) {
+		if (kDepthGenParamOrder[index] == id) {
+			return index;
+		}
+	}
+	return 0;
+}
+
+inline A_long DepthGenRenderWidth(const PF_InData* in_data) {
+	if (!in_data || in_data->width <= 0) {
+		return 0;
+	}
+	const PF_RationalScale& scale = in_data->downsample_x;
+	if (scale.num <= 0 || scale.den <= 0) {
+		return in_data->width;
+	}
+	return static_cast<A_long>(
+		(static_cast<long long>(in_data->width) * scale.num) / scale.den);
+}
+
+inline A_long DepthGenRenderHeight(const PF_InData* in_data) {
+	if (!in_data || in_data->height <= 0) {
+		return 0;
+	}
+	const PF_RationalScale& scale = in_data->downsample_y;
+	if (scale.num <= 0 || scale.den <= 0) {
+		return in_data->height;
+	}
+	return static_cast<A_long>(
+		(static_cast<long long>(in_data->height) * scale.num) / scale.den);
+}
 
 enum DepthGenQuality {
 	DEPTHGEN_QUALITY_FAST = 1,

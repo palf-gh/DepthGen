@@ -52,12 +52,24 @@ int RoundUpToPatchMultiple(int value, int patch) noexcept {
 void ComputeInferenceSize(int source_width, int source_height, int short_edge,
 	int* out_width, int* out_height) noexcept {
 	if (!out_width || !out_height || source_width <= 0 || source_height <= 0) {
+		if (out_width) *out_width = 0;
+		if (out_height) *out_height = 0;
 		return;
 	}
 	const float scale = static_cast<float>(std::max(short_edge, 14)) /
 		static_cast<float>(std::min(source_width, source_height));
 	*out_width = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_width * scale)));
 	*out_height = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_height * scale)));
+}
+
+int ScaleShortEdgeToRender(int full_width, int full_height, int render_width,
+	int render_height, int full_res_short_edge) noexcept {
+	const int full_short = std::min(std::max(full_width, 1), std::max(full_height, 1));
+	const int render_short = std::min(std::max(render_width, 1), std::max(render_height, 1));
+	const int scaled = static_cast<int>(
+		(static_cast<long long>(std::max(full_res_short_edge, 14)) * render_short +
+			full_short / 2) / full_short);
+	return std::max(14, scaled);
 }
 
 FloatImage ResizeCubic(const FloatImage& input, int out_width, int out_height) {

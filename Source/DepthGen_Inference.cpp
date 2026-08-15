@@ -64,10 +64,13 @@ std::filesystem::path ResolveModelPath() {
 	if (module.empty()) {
 		return {};
 	}
-#if defined(AE_OS_WIN)
-	return module.parent_path() / "Resources" / "Models" / "depth_anything_v2_vits_dynamic.onnx";
+	const std::filesystem::path plugin_dir = module.parent_path();
+#if defined(_WIN32)
+	// Windows layout: DepthGen.aex beside Resources/Models/.
+	return plugin_dir / "Resources" / "Models" / "depth_anything_v2_vits_dynamic.onnx";
 #else
-	return module.parent_path().parent_path() / "Resources" / "Models" /
+	// macOS layout: Contents/MacOS/DepthGen -> Contents/Resources/Models/.
+	return plugin_dir.parent_path() / "Resources" / "Models" /
 		"depth_anything_v2_vits_dynamic.onnx";
 #endif
 }
@@ -92,7 +95,10 @@ public:
 		const std::filesystem::path model_path = ResolveModelPath();
 		if (model_path.empty() || !std::filesystem::is_regular_file(model_path)) {
 			if (error) {
-				*error = "DepthGen model is missing. Install the verified Resources/Models asset or set DEPTHGEN_MODEL_PATH.";
+				*error = model_path.empty()
+					? "DepthGen model is missing. Install the verified Resources/Models asset or set DEPTHGEN_MODEL_PATH."
+					: ("DepthGen model is missing (" + model_path.u8string() +
+						"). Install the verified Resources/Models asset or set DEPTHGEN_MODEL_PATH.");
 			}
 			return false;
 		}

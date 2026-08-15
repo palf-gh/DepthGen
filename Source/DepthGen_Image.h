@@ -18,6 +18,8 @@ struct FloatImage {
 int RoundUpToPatchMultiple(int value, int patch = 14) noexcept;
 void ComputeInferenceSize(int source_width, int source_height, int short_edge,
 	int* out_width, int* out_height) noexcept;
+int ScaleShortEdgeToRender(int full_width, int full_height, int render_width,
+	int render_height, int full_res_short_edge) noexcept;
 FloatImage ResizeCubic(const FloatImage& input, int out_width, int out_height);
 FloatImage ResizeBilinearAligned(const FloatImage& input, int out_width, int out_height);
 float LinearToSrgb(float value) noexcept;

@@ -10,6 +10,7 @@ enum class DepthGenString {
 	Contrast,
 	Invert,
 	ShowAdvanced,
+	AdvancedGroup,
 	CustomShortEdge,
 	InputTransfer,
 	InputTransferItems,
@@ -30,6 +31,7 @@ inline const char* English(DepthGenString key) {
 	case DepthGenString::Contrast: return "Contrast";
 	case DepthGenString::Invert: return "Invert Depth";
 	case DepthGenString::ShowAdvanced: return "Show Advanced Controls";
+	case DepthGenString::AdvancedGroup: return "Advanced";
 	case DepthGenString::CustomShortEdge: return "Custom Short Edge";
 	case DepthGenString::InputTransfer: return "Input Transfer";
 	case DepthGenString::InputTransferItems: return "Assume sRGB|Linear to sRGB";
@@ -50,6 +52,7 @@ inline const char* Japanese(DepthGenString key) {
 	case DepthGenString::Contrast: return u8"コントラスト";
 	case DepthGenString::Invert: return u8"深度を反転";
 	case DepthGenString::ShowAdvanced: return u8"詳細設定を表示";
+	case DepthGenString::AdvancedGroup: return u8"詳細設定";
 	case DepthGenString::CustomShortEdge: return u8"カスタム短辺";
 	case DepthGenString::InputTransfer: return u8"入力トランスファー";
 	case DepthGenString::InputTransferItems: return u8"sRGB として扱う|リニアから sRGB";
@@ -70,6 +73,7 @@ inline const char* Chinese(DepthGenString key) {
 	case DepthGenString::Contrast: return u8"对比度";
 	case DepthGenString::Invert: return u8"反转深度";
 	case DepthGenString::ShowAdvanced: return u8"显示高级控件";
+	case DepthGenString::AdvancedGroup: return u8"高级";
 	case DepthGenString::CustomShortEdge: return u8"自定义短边";
 	case DepthGenString::InputTransfer: return u8"输入传递函数";
 	case DepthGenString::InputTransferItems: return u8"假定 sRGB|线性转 sRGB";
@@ -90,6 +94,7 @@ inline const char* Korean(DepthGenString key) {
 	case DepthGenString::Contrast: return u8"대비";
 	case DepthGenString::Invert: return u8"깊이 반전";
 	case DepthGenString::ShowAdvanced: return u8"고급 컨트롤 표시";
+	case DepthGenString::AdvancedGroup: return u8"고급";
 	case DepthGenString::CustomShortEdge: return u8"사용자 지정 짧은 변";
 	case DepthGenString::InputTransfer: return u8"입력 전달 함수";
 	case DepthGenString::InputTransferItems: return u8"sRGB로 간주|선형에서 sRGB";
