@@ -83,19 +83,21 @@ double Percentile(const std::vector<double>& sorted, double percentile) {
 }
 
 std::vector<float> MakeInput(int width, int height) {
-	std::vector<float> rgb(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
+	// Planar NCHW, ImageNet-normalised — the same layout the effect produces.
+	std::vector<float> tensor(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
+	const size_t plane = static_cast<size_t>(width) * static_cast<size_t>(height);
 	for (int y = 0; y < height; ++y) {
 		for (int x = 0; x < width; ++x) {
-			const size_t offset = (static_cast<size_t>(y) * width + x) * 3U;
+			const size_t index = static_cast<size_t>(y) * width + x;
 			const float horizontal = static_cast<float>(x) / static_cast<float>(std::max(width - 1, 1));
 			const float vertical = static_cast<float>(y) / static_cast<float>(std::max(height - 1, 1));
-			rgb[offset] = horizontal;
-			rgb[offset + 1U] = vertical;
-			rgb[offset + 2U] = 0.5f + 0.5f * std::sin((horizontal + vertical) * 6.28318530718f);
+			const float value = 0.5f + 0.5f * std::sin((horizontal + vertical) * 6.28318530718f);
+			tensor[index] = (horizontal - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0];
+			tensor[plane + index] = (vertical - depthgen::kImageNetMean[1]) / depthgen::kImageNetDeviation[1];
+			tensor[plane * 2U + index] = (value - depthgen::kImageNetMean[2]) / depthgen::kImageNetDeviation[2];
 		}
 	}
-	depthgen::ImageNetNormaliseInterleavedRgb(&rgb);
-	return rgb;
+	return tensor;
 }
 
 void RunInference(const std::vector<float>& input, int width, int height,

@@ -39,6 +39,7 @@ set(DEPTHGEN_SOURCES
   Source/DepthGen_UI.cpp
   Source/DepthGen_Image.h
   Source/DepthGen_Image.cpp
+  Source/DepthGen_Pipeline.h
   Source/DepthGen_ModelIntegrity.h
   Source/DepthGen_ModelIntegrity.cpp
   Source/DepthGen_Inference.h
@@ -336,11 +337,31 @@ endif()
 if(DEPTHGEN_BUILD_TESTS)
   enable_testing()
   add_executable(depthgen_image_tests tests/DepthGenImageTests.cpp Source/DepthGen_Image.cpp)
-  target_include_directories(depthgen_image_tests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+  target_include_directories(depthgen_image_tests PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+    "${AESDK_ROOT}/Headers"
+    "${AESDK_ROOT}/Headers/SP"
+    "${AESDK_ROOT}/Util")
+  target_compile_definitions(depthgen_image_tests PRIVATE
+    $<$<BOOL:${WIN32}>:MSWindows;_WINDOWS>)
   if(MSVC)
     target_compile_options(depthgen_image_tests PRIVATE /utf-8 /W4 /permissive-)
   endif()
   add_test(NAME depthgen_image_tests COMMAND depthgen_image_tests)
+  add_executable(depthgen_pipeline_bench
+    tests/DepthGenPipelineBench.cpp
+    Source/DepthGen_Image.cpp)
+  target_include_directories(depthgen_pipeline_bench PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+    "${AESDK_ROOT}/Headers"
+    "${AESDK_ROOT}/Headers/SP"
+    "${AESDK_ROOT}/Util")
+  target_compile_definitions(depthgen_pipeline_bench PRIVATE
+    $<$<BOOL:${WIN32}>:MSWindows;_WINDOWS>
+    _CRT_SECURE_NO_WARNINGS)
+  if(MSVC)
+    target_compile_options(depthgen_pipeline_bench PRIVATE /utf-8 /W4 /permissive-)
+  endif()
   set(DEPTHGEN_TEST_MODEL_PATH "" CACHE FILEPATH "Optional verified ONNX model for smoke testing")
   if(DEPTHGEN_HAS_ORT AND DEPTHGEN_TEST_MODEL_PATH)
     add_executable(depthgen_model_smoke

@@ -1,6 +1,7 @@
 #include "DepthGen.h"
 #include "DepthGen_Image.h"
 #include "DepthGen_Inference.h"
+#include "DepthGen_Pipeline.h"
 #include "Localise/DepthGenStrings.h"
 
 #include <algorithm>
@@ -10,168 +11,6 @@
 #include <vector>
 
 namespace {
-
-constexpr float kAlphaEpsilon = 1.0e-6f;
-
-float Clamp01(float value) {
-	return std::max(0.0f, std::min(1.0f, value));
-}
-
-template <typename Pixel>
-Pixel* PixelAt(PF_EffectWorld* world, A_long x, A_long y) {
-	return reinterpret_cast<Pixel*>(reinterpret_cast<char*>(world->data) +
-		static_cast<ptrdiff_t>(y) * world->rowbytes) + x;
-}
-
-template <typename Pixel>
-void ReadPixel(const Pixel& pixel, float* red, float* green, float* blue, float* alpha);
-
-template <>
-void ReadPixel(const PF_Pixel& pixel, float* red, float* green, float* blue, float* alpha) {
-	*red = pixel.red / 255.0f;
-	*green = pixel.green / 255.0f;
-	*blue = pixel.blue / 255.0f;
-	*alpha = pixel.alpha / 255.0f;
-}
-
-template <>
-void ReadPixel(const PF_Pixel16& pixel, float* red, float* green, float* blue, float* alpha) {
-	*red = pixel.red / 32768.0f;
-	*green = pixel.green / 32768.0f;
-	*blue = pixel.blue / 32768.0f;
-	*alpha = pixel.alpha / 32768.0f;
-}
-
-template <>
-void ReadPixel(const PF_PixelFloat& pixel, float* red, float* green, float* blue, float* alpha) {
-	*red = pixel.red;
-	*green = pixel.green;
-	*blue = pixel.blue;
-	*alpha = pixel.alpha;
-}
-
-template <typename Pixel>
-void WritePixel(Pixel* pixel, float depth, float alpha);
-
-template <>
-void WritePixel(PF_Pixel* pixel, float depth, float alpha) {
-	const A_u_char rgb = static_cast<A_u_char>(std::lround(Clamp01(depth) * 255.0f));
-	pixel->red = rgb;
-	pixel->green = rgb;
-	pixel->blue = rgb;
-	pixel->alpha = static_cast<A_u_char>(std::lround(Clamp01(alpha) * 255.0f));
-}
-
-template <>
-void WritePixel(PF_Pixel16* pixel, float depth, float alpha) {
-	const A_u_short rgb = static_cast<A_u_short>(std::lround(Clamp01(depth) * 32768.0f));
-	pixel->red = rgb;
-	pixel->green = rgb;
-	pixel->blue = rgb;
-	pixel->alpha = static_cast<A_u_short>(std::lround(Clamp01(alpha) * 32768.0f));
-}
-
-template <>
-void WritePixel(PF_PixelFloat* pixel, float depth, float alpha) {
-	pixel->red = Clamp01(depth);
-	pixel->green = Clamp01(depth);
-	pixel->blue = Clamp01(depth);
-	pixel->alpha = Clamp01(alpha);
-}
-
-template <typename Pixel>
-void ReadWorld(
-	PF_EffectWorld* world,
-	bool linear_to_srgb,
-	std::vector<float>* rgb,
-	std::vector<float>* alpha) {
-	const size_t pixel_count = static_cast<size_t>(world->width) * static_cast<size_t>(world->height);
-	rgb->resize(pixel_count * 3U);
-	alpha->resize(pixel_count);
-	for (A_long y = 0; y < world->height; ++y) {
-		for (A_long x = 0; x < world->width; ++x) {
-			float red = 0.0f;
-			float green = 0.0f;
-			float blue = 0.0f;
-			float source_alpha = 0.0f;
-			ReadPixel(*PixelAt<Pixel>(world, x, y), &red, &green, &blue, &source_alpha);
-			source_alpha = Clamp01(source_alpha);
-			const size_t index = static_cast<size_t>(y) * world->width + x;
-			(*alpha)[index] = source_alpha;
-			if (source_alpha <= kAlphaEpsilon) {
-				(*rgb)[index * 3U] = 0.0f;
-				(*rgb)[index * 3U + 1U] = 0.0f;
-				(*rgb)[index * 3U + 2U] = 0.0f;
-				continue;
-			}
-			red = Clamp01(red / source_alpha);
-			green = Clamp01(green / source_alpha);
-			blue = Clamp01(blue / source_alpha);
-			if (linear_to_srgb) {
-				red = depthgen::LinearToSrgb(red);
-				green = depthgen::LinearToSrgb(green);
-				blue = depthgen::LinearToSrgb(blue);
-			}
-			(*rgb)[index * 3U] = red;
-			(*rgb)[index * 3U + 1U] = green;
-			(*rgb)[index * 3U + 2U] = blue;
-		}
-	}
-}
-
-std::vector<float> ResizeRgbForInference(
-	const std::vector<float>& source_rgb,
-	int source_width,
-	int source_height,
-	int inference_width,
-	int inference_height) {
-	std::vector<float> output(static_cast<size_t>(inference_width) * inference_height * 3U);
-	for (int channel = 0; channel < 3; ++channel) {
-		depthgen::FloatImage plane;
-		plane.width = source_width;
-		plane.height = source_height;
-		plane.values.resize(static_cast<size_t>(source_width) * source_height);
-		for (size_t pixel = 0; pixel < plane.values.size(); ++pixel) {
-			plane.values[pixel] = source_rgb[pixel * 3U + static_cast<size_t>(channel)];
-		}
-		const depthgen::FloatImage resized = depthgen::ResizeCubic(plane, inference_width, inference_height);
-		for (size_t pixel = 0; pixel < resized.values.size(); ++pixel) {
-			output[pixel * 3U + static_cast<size_t>(channel)] = resized.values[pixel];
-		}
-	}
-	depthgen::ImageNetNormaliseInterleavedRgb(&output);
-	return output;
-}
-
-template <typename Pixel>
-void WriteDepthWorld(
-	PF_EffectWorld* output_world,
-	const PF_EffectWorld* input_world,
-	const std::vector<float>& depth,
-	const std::vector<float>& source_alpha,
-	bool preserve_alpha) {
-	if (!output_world || !input_world || input_world->width <= 0 || input_world->height <= 0) {
-		return;
-	}
-	for (A_long y = 0; y < output_world->height; ++y) {
-		for (A_long x = 0; x < output_world->width; ++x) {
-			const A_long src_x = x + output_world->origin_x - input_world->origin_x;
-			const A_long src_y = y + output_world->origin_y - input_world->origin_y;
-			float value = 0.0f;
-			float alpha = preserve_alpha ? 0.0f : 1.0f;
-			if (src_x >= 0 && src_x < input_world->width &&
-				src_y >= 0 && src_y < input_world->height) {
-				const size_t index = static_cast<size_t>(src_y) * static_cast<size_t>(input_world->width) +
-					static_cast<size_t>(src_x);
-				if (index < depth.size() && index < source_alpha.size()) {
-					alpha = preserve_alpha ? source_alpha[index] : 1.0f;
-					value = source_alpha[index] <= kAlphaEpsilon ? 0.0f : depth[index];
-				}
-			}
-			WritePixel(PixelAt<Pixel>(output_world, x, y), value, alpha);
-		}
-	}
-}
 
 PF_Err ReadSettings(PF_InData* in_data, DepthGenRenderSettings* settings) {
 	if (!in_data || !settings) {
@@ -377,14 +216,6 @@ PF_Err DepthGen_RenderWorld(
 		output_world->width <= 0 || output_world->height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
-	std::vector<float> rgb;
-	std::vector<float> alpha;
-	switch (pixel_format) {
-	case PF_PixelFormat_ARGB32: ReadWorld<PF_Pixel>(input_world, settings.linear_to_srgb, &rgb, &alpha); break;
-	case PF_PixelFormat_ARGB64: ReadWorld<PF_Pixel16>(input_world, settings.linear_to_srgb, &rgb, &alpha); break;
-	case PF_PixelFormat_ARGB128: ReadWorld<PF_PixelFloat>(input_world, settings.linear_to_srgb, &rgb, &alpha); break;
-	default: return PF_Err_UNRECOGNIZED_PARAM_TYPE;
-	}
 	int inference_width = 0;
 	int inference_height = 0;
 	const A_long full_width = (in_data && in_data->width > 0) ? in_data->width : input_world->width;
@@ -404,12 +235,33 @@ PF_Err DepthGen_RenderWorld(
 	if (inference_width <= 0 || inference_height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
-	std::vector<float> inference_rgb = ResizeRgbForInference(rgb, input_world->width, input_world->height,
-		inference_width, inference_height);
+	std::vector<float> alpha;
+	std::vector<float> tensor;
+	switch (pixel_format) {
+	case PF_PixelFormat_ARGB32:
+		alpha = depthgen::ReadWorldAlpha<PF_Pixel>(input_world);
+		tensor = depthgen::ReadWorldToInferenceTensor<PF_Pixel>(input_world, inference_width,
+			inference_height, settings.linear_to_srgb);
+		break;
+	case PF_PixelFormat_ARGB64:
+		alpha = depthgen::ReadWorldAlpha<PF_Pixel16>(input_world);
+		tensor = depthgen::ReadWorldToInferenceTensor<PF_Pixel16>(input_world, inference_width,
+			inference_height, settings.linear_to_srgb);
+		break;
+	case PF_PixelFormat_ARGB128:
+		alpha = depthgen::ReadWorldAlpha<PF_PixelFloat>(input_world);
+		tensor = depthgen::ReadWorldToInferenceTensor<PF_PixelFloat>(input_world, inference_width,
+			inference_height, settings.linear_to_srgb);
+		break;
+	default: return PF_Err_UNRECOGNIZED_PARAM_TYPE;
+	}
+	if (tensor.empty() || alpha.empty()) {
+		return PF_Err_OUT_OF_MEMORY;
+	}
 	depthgen::InferenceResult result;
 	depthgen::InferenceProvider provider = depthgen::InferenceProvider::Unavailable;
 	std::string inference_error;
-	if (!depthgen::InferDepthAnythingSmall(inference_rgb, inference_width, inference_height,
+	if (!depthgen::InferDepthAnythingSmall(tensor, inference_width, inference_height,
 		&result, &provider, &inference_error)) {
 		if (out_data && !inference_error.empty()) {
 			PF_SPRINTF(out_data->return_msg, "DepthGen: %s", inference_error.c_str());
@@ -427,13 +279,16 @@ PF_Err DepthGen_RenderWorld(
 		settings.contrast, settings.invert);
 	switch (pixel_format) {
 	case PF_PixelFormat_ARGB32:
-		WriteDepthWorld<PF_Pixel>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		depthgen::WriteDepthWorld<PF_Pixel>(output_world, input_world, full_depth.values, alpha,
+			settings.preserve_alpha);
 		break;
 	case PF_PixelFormat_ARGB64:
-		WriteDepthWorld<PF_Pixel16>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		depthgen::WriteDepthWorld<PF_Pixel16>(output_world, input_world, full_depth.values, alpha,
+			settings.preserve_alpha);
 		break;
 	case PF_PixelFormat_ARGB128:
-		WriteDepthWorld<PF_PixelFloat>(output_world, input_world, full_depth.values, alpha, settings.preserve_alpha);
+		depthgen::WriteDepthWorld<PF_PixelFloat>(output_world, input_world, full_depth.values, alpha,
+			settings.preserve_alpha);
 		break;
 	default: break;
 	}

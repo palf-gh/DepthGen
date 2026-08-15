@@ -25,8 +25,9 @@ struct InferenceResult {
 
 // Process-global and internally synchronised. It deliberately has no frame
 // history, so its output depends only on the supplied source frame/settings.
+// The input is an ImageNet-normalised NCHW tensor (planar RGB).
 bool InferDepthAnythingSmall(
-	const std::vector<float>& normalised_interleaved_rgb,
+	const std::vector<float>& normalised_nchw_rgb,
 	int width,
 	int height,
 	InferenceResult* result,

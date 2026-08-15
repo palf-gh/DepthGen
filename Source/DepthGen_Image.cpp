@@ -1,6 +1,7 @@
 #include "DepthGen_Image.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 
@@ -11,34 +12,25 @@ float Clamp01(float value) noexcept {
 	return std::max(0.0f, std::min(1.0f, value));
 }
 
-float CubicWeight(float value) noexcept {
-	// OpenCV's INTER_CUBIC kernel uses a = -0.75.
-	constexpr float a = -0.75f;
-	value = std::abs(value);
-	if (value <= 1.0f) {
-		return (a + 2.0f) * value * value * value - (a + 3.0f) * value * value + 1.0f;
-	}
-	if (value < 2.0f) {
-		return a * value * value * value - 5.0f * a * value * value + 8.0f * a * value - 4.0f * a;
-	}
-	return 0.0f;
-}
-
-int ClampIndex(int value, int limit) noexcept {
-	return std::max(0, std::min(limit - 1, value));
-}
-
-float Percentile(std::vector<float>* sorted, float percentile) {
-	if (sorted->empty()) {
-		return 0.0f;
-	}
-	const float p = Clamp01(percentile / 100.0f);
-	const float position = p * static_cast<float>(sorted->size() - 1);
+// Exact order-statistic percentile (identical to sorting, but O(n)).
+// `values` may be reordered by the call.
+float PercentileFromUnsorted(std::vector<float>* values, float percentile) {
+	const size_t count = values->size();
+	const float position = Clamp01(percentile / 100.0f) * static_cast<float>(count - 1);
 	const size_t lower = static_cast<size_t>(std::floor(position));
 	const size_t upper = static_cast<size_t>(std::ceil(position));
-	const float fraction = position - static_cast<float>(lower);
-	return (*sorted)[lower] + ((*sorted)[upper] - (*sorted)[lower]) * fraction;
+	std::nth_element(values->begin(), values->begin() + upper, values->end());
+	const float high = (*values)[upper];
+	if (lower == upper) {
+		return high;
+	}
+	// After nth_element at `upper`, every value before it is <= high, so the
+	// lower order statistic is the maximum of the prefix.
+	const float low = *std::max_element(values->begin(), values->begin() + upper);
+	return low + (high - low) * (position - static_cast<float>(lower));
 }
+
+constexpr size_t kGammaLutSize = 4096;
 
 } // namespace
 
@@ -70,41 +62,6 @@ int ScaleShortEdgeToRender(int full_width, int full_height, int render_width,
 		(static_cast<long long>(std::max(full_res_short_edge, 14)) * render_short +
 			full_short / 2) / full_short);
 	return std::max(14, scaled);
-}
-
-FloatImage ResizeCubic(const FloatImage& input, int out_width, int out_height) {
-	FloatImage output;
-	if (!input.valid() || out_width <= 0 || out_height <= 0) {
-		return output;
-	}
-	output.width = out_width;
-	output.height = out_height;
-	output.values.resize(static_cast<size_t>(out_width) * static_cast<size_t>(out_height));
-	const float scale_x = static_cast<float>(input.width) / static_cast<float>(out_width);
-	const float scale_y = static_cast<float>(input.height) / static_cast<float>(out_height);
-	for (int y = 0; y < out_height; ++y) {
-		const float source_y = (static_cast<float>(y) + 0.5f) * scale_y - 0.5f;
-		const int y_base = static_cast<int>(std::floor(source_y));
-		for (int x = 0; x < out_width; ++x) {
-			const float source_x = (static_cast<float>(x) + 0.5f) * scale_x - 0.5f;
-			const int x_base = static_cast<int>(std::floor(source_x));
-			float sum = 0.0f;
-			float weight_sum = 0.0f;
-			for (int ky = -1; ky <= 2; ++ky) {
-				const float wy = CubicWeight(source_y - static_cast<float>(y_base + ky));
-				const int sample_y = ClampIndex(y_base + ky, input.height);
-				for (int kx = -1; kx <= 2; ++kx) {
-					const float weight = wy * CubicWeight(source_x - static_cast<float>(x_base + kx));
-					const int sample_x = ClampIndex(x_base + kx, input.width);
-					sum += input.values[static_cast<size_t>(sample_y) * input.width + sample_x] * weight;
-					weight_sum += weight;
-				}
-			}
-			output.values[static_cast<size_t>(y) * out_width + x] =
-				weight_sum != 0.0f ? sum / weight_sum : 0.0f;
-		}
-	}
-	return output;
 }
 
 FloatImage ResizeBilinearAligned(const FloatImage& input, int out_width, int out_height) {
@@ -148,12 +105,11 @@ void ImageNetNormaliseInterleavedRgb(std::vector<float>* rgb) {
 	if (!rgb) {
 		return;
 	}
-	constexpr float mean[] = {0.485f, 0.456f, 0.406f};
-	constexpr float deviation[] = {0.229f, 0.224f, 0.225f};
 	for (size_t pixel = 0; pixel + 2 < rgb->size(); pixel += 3) {
-		(*rgb)[pixel] = ((*rgb)[pixel] - mean[0]) / deviation[0];
-		(*rgb)[pixel + 1] = ((*rgb)[pixel + 1] - mean[1]) / deviation[1];
-		(*rgb)[pixel + 2] = ((*rgb)[pixel + 2] - mean[2]) / deviation[2];
+		for (size_t channel = 0; channel < 3; ++channel) {
+			(*rgb)[pixel + channel] =
+				((*rgb)[pixel + channel] - kImageNetMean[channel]) / kImageNetDeviation[channel];
+		}
 	}
 }
 
@@ -180,16 +136,37 @@ void MapRelativeDepthToUnit(
 		std::fill(depth->begin(), depth->end(), 0.0f);
 		return;
 	}
-	std::sort(samples.begin(), samples.end());
-	const float low = Percentile(&samples, std::min(far_percentile, near_percentile));
-	const float high = Percentile(&samples, std::max(far_percentile, near_percentile));
+	const float low = PercentileFromUnsorted(&samples, std::min(far_percentile, near_percentile));
+	const float high = PercentileFromUnsorted(&samples, std::max(far_percentile, near_percentile));
 	const float span = std::max(high - low, std::numeric_limits<float>::epsilon());
+	const float inverse_span = 1.0f / span;
 	const float gamma = std::max(contrast, 0.01f);
-	for (float& value : *depth) {
-		value = Clamp01((value - low) / span);
-		value = std::pow(value, 1.0f / gamma);
+	if (std::abs(gamma - 1.0f) <= 1.0e-6f) {
 		if (invert) {
-			value = 1.0f - value;
+			for (float& value : *depth) {
+				value = 1.0f - Clamp01((value - low) * inverse_span);
+			}
+		} else {
+			for (float& value : *depth) {
+				value = Clamp01((value - low) * inverse_span);
+			}
+		}
+		return;
+	}
+	// pow() per pixel at full resolution is expensive; a 4096-entry LUT with
+	// linear interpolation stays far below display quantisation error.
+	std::array<float, kGammaLutSize> lut{};
+	const float exponent = 1.0f / gamma;
+	for (size_t i = 0; i < lut.size(); ++i) {
+		lut[i] = std::pow(static_cast<float>(i) / static_cast<float>(lut.size() - 1), exponent);
+	}
+	if (invert) {
+		for (float& value : *depth) {
+			value = 1.0f - SampleLut(lut.data(), lut.size(), (value - low) * inverse_span);
+		}
+	} else {
+		for (float& value : *depth) {
+			value = SampleLut(lut.data(), lut.size(), (value - low) * inverse_span);
 		}
 	}
 }

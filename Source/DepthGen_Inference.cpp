@@ -75,17 +75,6 @@ std::filesystem::path ResolveModelPath() {
 #endif
 }
 
-std::vector<float> ToNchw(const std::vector<float>& rgb, int width, int height) {
-	std::vector<float> nchw(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
-	const size_t plane = static_cast<size_t>(width) * static_cast<size_t>(height);
-	for (size_t pixel = 0; pixel < plane; ++pixel) {
-		nchw[pixel] = rgb[pixel * 3U];
-		nchw[plane + pixel] = rgb[pixel * 3U + 1U];
-		nchw[plane * 2U + pixel] = rgb[pixel * 3U + 2U];
-	}
-	return nchw;
-}
-
 #if defined(DEPTHGEN_HAS_ORT)
 class Runtime final {
 public:
@@ -105,11 +94,10 @@ public:
 		if (!EnsureModelIntegrity(model_path, error)) return false;
 		try {
 			EnsureSession(model_path, provider, preference);
-			const std::vector<float> nchw = ToNchw(rgb, width, height);
 			const std::array<int64_t, 4> shape = {1, 3, height, width};
 			Ort::MemoryInfo memory = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
 			Ort::Value input = Ort::Value::CreateTensor<float>(memory,
-				const_cast<float*>(nchw.data()), nchw.size(), shape.data(), shape.size());
+				const_cast<float*>(rgb.data()), rgb.size(), shape.data(), shape.size());
 			auto run_session = [&]() {
 #if defined(DEPTHGEN_TESTING)
 				if (provider_ != InferenceProvider::Cpu &&
@@ -293,7 +281,7 @@ const char* InferenceProviderName(InferenceProvider provider) noexcept {
 }
 
 bool InferDepthAnythingSmall(
-	const std::vector<float>& normalised_interleaved_rgb,
+	const std::vector<float>& normalised_nchw_rgb,
 	int width,
 	int height,
 	InferenceResult* result,
@@ -301,7 +289,7 @@ bool InferDepthAnythingSmall(
 	std::string* error,
 	InferencePreference preference) {
 	if (!result || width <= 0 || height <= 0 ||
-		normalised_interleaved_rgb.size() != static_cast<size_t>(width) * static_cast<size_t>(height) * 3U) {
+		normalised_nchw_rgb.size() != static_cast<size_t>(width) * static_cast<size_t>(height) * 3U) {
 		if (error) {
 			*error = "DepthGen received an invalid inference image.";
 		}
@@ -309,9 +297,9 @@ bool InferDepthAnythingSmall(
 	}
 #if defined(DEPTHGEN_HAS_ORT)
 	static Runtime runtime;
-	return runtime.Infer(normalised_interleaved_rgb, width, height, result, provider, error, preference);
+	return runtime.Infer(normalised_nchw_rgb, width, height, result, provider, error, preference);
 #else
-	(void)normalised_interleaved_rgb;
+	(void)normalised_nchw_rgb;
 	(void)preference;
 	if (provider) {
 		*provider = InferenceProvider::Unavailable;

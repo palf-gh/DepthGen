@@ -1,4 +1,5 @@
 #include "DepthGen_Image.h"
+#include "DepthGen_Pipeline.h"
 
 #include <cmath>
 #include <cstdlib>
@@ -16,6 +17,18 @@ void Require(bool condition, const char* message) {
 
 bool Near(float lhs, float rhs, float tolerance = 1.0e-5f) {
 	return std::abs(lhs - rhs) <= tolerance;
+}
+
+PF_EffectWorld MakeWorld8(std::vector<PF_Pixel>* storage, A_long width, A_long height) {
+	storage->resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+	PF_EffectWorld world{};
+	world.data = storage->data();
+	world.rowbytes = static_cast<A_long>(width * sizeof(PF_Pixel));
+	world.width = width;
+	world.height = height;
+	world.origin_x = 0;
+	world.origin_y = 0;
+	return world;
 }
 
 } // namespace
@@ -61,6 +74,27 @@ int main() {
 		0.0f, 100.0f, 1.0f, false);
 	Require(Near(transparent_depth[0], 0.0f), "alpha-aware levels must exclude transparent outliers");
 
+	// Percentile interpolation must match the order statistics of a full sort.
+	{
+		std::vector<float> eleven(11);
+		const std::vector<float> opaque(11, 1.0f);
+		for (size_t i = 0; i < eleven.size(); ++i) {
+			eleven[i] = static_cast<float>(i);
+		}
+		depthgen::MapRelativeDepthToUnit(&eleven, opaque, 0.0f, true, 25.0f, 75.0f, 1.0f, false);
+		Require(Near(eleven[5], 0.5f), "interpolated 25/75 percentiles must centre the mid sample");
+		Require(Near(eleven[2], 0.0f) && Near(eleven[8], 1.0f),
+			"interpolated percentiles must clip at the fractional bounds");
+	}
+	// Contrast uses a LUT; verify sqrt behaviour at a mid value within LUT error.
+	{
+		std::vector<float> ramp = {0.0f, 0.25f, 0.5f, 0.75f, 1.0f};
+		depthgen::MapRelativeDepthToUnit(&ramp, alpha, 0.0f, true, 0.0f, 100.0f, 2.0f, false);
+		Require(Near(ramp[1], 0.5f, 2.0e-3f) && Near(ramp[2], std::sqrt(0.5f), 2.0e-3f) &&
+			Near(ramp[3], std::sqrt(0.75f), 2.0e-3f),
+			"contrast LUT must approximate the gamma curve");
+	}
+
 	Require(Near(depthgen::LinearToSrgb(0.0f), 0.0f) && Near(depthgen::LinearToSrgb(1.0f), 1.0f),
 		"sRGB transfer must retain endpoints");
 
@@ -72,6 +106,77 @@ int main() {
 	Require(width == 0 && height == 0, "invalid source must yield a zero inference size");
 	depthgen::ComputeInferenceSize(960, 540, 259, &width, &height);
 	Require(width == 462 && height == 266, "half-resolution Balanced size must stay patch-aligned");
+
+	// Fused inference sampler: aligned bilinear reduction straight to NCHW.
+	{
+		std::vector<PF_Pixel> pixels;
+		PF_EffectWorld world = MakeWorld8(&pixels, 4, 4);
+		for (A_long y = 0; y < 4; ++y) {
+			for (A_long x = 0; x < 4; ++x) {
+				PF_Pixel* pixel = depthgen::PixelAt<PF_Pixel>(&world, x, y);
+				pixel->alpha = 255;
+				pixel->red = static_cast<A_u_char>(x * 80);
+				pixel->green = static_cast<A_u_char>(y * 80);
+				pixel->blue = 128;
+			}
+		}
+		const std::vector<float> tensor =
+			depthgen::ReadWorldToInferenceTensor<PF_Pixel>(&world, 2, 2, false);
+		Require(tensor.size() == 12, "2x2 RGB tensor must hold 12 values");
+		const float red_far = 240.0f / 255.0f;
+		Require(Near(tensor[0], (0.0f - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0]),
+			"tensor corner must sample the first source corner");
+		Require(Near(tensor[1], (red_far - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0]),
+			"tensor must sample the far source corner at reduced size");
+		Require(Near(tensor[5], (0.0f - depthgen::kImageNetMean[1]) / depthgen::kImageNetDeviation[1]),
+			"green plane must be planar after the red plane");
+		Require(Near(tensor[7], (red_far - depthgen::kImageNetMean[1]) / depthgen::kImageNetDeviation[1]),
+			"green plane must track vertical position");
+	}
+	// Premultiplied sources must unpremultiply after the alpha-weighted reduction.
+	{
+		std::vector<PF_Pixel> pixels;
+		PF_EffectWorld world = MakeWorld8(&pixels, 4, 4);
+		for (PF_Pixel& pixel : pixels) {
+			pixel.alpha = 128;
+			pixel.red = 128;
+			pixel.green = 0;
+			pixel.blue = 0;
+		}
+		const std::vector<float> tensor =
+			depthgen::ReadWorldToInferenceTensor<PF_Pixel>(&world, 2, 2, false);
+		Require(Near(tensor[0], (1.0f - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0],
+			1.0e-3f), "premultiplied half-alpha red must unpremultiply to full red");
+	}
+	// Fully transparent pixels contribute zero colour, matching the old path.
+	{
+		std::vector<PF_Pixel> pixels;
+		PF_EffectWorld world = MakeWorld8(&pixels, 4, 4);
+		for (PF_Pixel& pixel : pixels) {
+			pixel.alpha = 0;
+			pixel.red = 255;
+		}
+		const std::vector<float> tensor =
+			depthgen::ReadWorldToInferenceTensor<PF_Pixel>(&world, 2, 2, false);
+		Require(Near(tensor[0], (0.0f - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0]),
+			"transparent pixels must sample as black");
+	}
+	// Linear-to-sRGB conversion goes through the LUT with sub-quantisation error.
+	{
+		std::vector<PF_Pixel> pixels;
+		PF_EffectWorld world = MakeWorld8(&pixels, 2, 2);
+		for (PF_Pixel& pixel : pixels) {
+			pixel.alpha = 255;
+			pixel.red = 128;
+			pixel.green = 128;
+			pixel.blue = 128;
+		}
+		const std::vector<float> tensor =
+			depthgen::ReadWorldToInferenceTensor<PF_Pixel>(&world, 2, 2, true);
+		const float expected = depthgen::LinearToSrgb(128.0f / 255.0f);
+		Require(Near(tensor[0], (expected - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0],
+			3.0e-3f), "linear input must pass through the sRGB transfer LUT");
+	}
 
 	std::cout << "DepthGen image-pipeline tests passed\n";
 	return 0;
