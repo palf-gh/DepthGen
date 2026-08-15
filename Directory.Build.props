@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <!-- Satisfies the SDK Examples tree's MSBuild output guard. CMake controls
+       the actual plug-in output directory; callers may override this value. -->
+  <PropertyGroup>
+    <AE_PLUGIN_BUILD_DIR Condition="'$(AE_PLUGIN_BUILD_DIR)' == '' and '$(Configuration)' == 'Debug'">$(MSBuildThisFileDirectory)output\Win\Debug</AE_PLUGIN_BUILD_DIR>
+    <AE_PLUGIN_BUILD_DIR Condition="'$(AE_PLUGIN_BUILD_DIR)' == '' and '$(Configuration)' == 'Release'">$(MSBuildThisFileDirectory)output\Win\Release</AE_PLUGIN_BUILD_DIR>
+    <AE_PLUGIN_BUILD_DIR Condition="'$(AE_PLUGIN_BUILD_DIR)' == ''">$(MSBuildThisFileDirectory)output\Win\Debug</AE_PLUGIN_BUILD_DIR>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,20 @@
+# CMake and IDE output
+/build/
+/out/
+/.vs/
+/.idea/
+compile_commands.json
+
+# Downloaded, reproducible runtime assets. These never belong in Git.
+/third_party/runtime/
+/Resources/Models/*.onnx
+/Resources/Models/*.data
+/Resources/Models/*.sha256
+
+# Release staging and host-local installation output
+/dist/
+/package/
+
+# macOS Finder and Windows Explorer metadata
+.DS_Store
+Thumbs.db
