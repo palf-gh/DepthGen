@@ -11,6 +11,13 @@ source layer into an AI-estimated **relative** depth map. It uses the
 Apache-2.0 Depth Anything V2 Small model through ONNX Runtime. White means
 nearer apparent depth by default; black means farther apparent depth.
 
+The shipped ONNX keeps those original Small weights. DepthGen only rewires
+interpolation so GPU runtimes can execute the whole graph: bilinear upsamples
+use constant scales, and the positional-embedding table is resampled linearly
+rather than cubically. The visual difference is small (about 0.3% mean
+absolute error on a normalised depth map). See
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md).
+
 It is intended for compositing, depth mattes, and depth-aware effects. A
 single image cannot establish real-world distance, so DepthGen does not claim
 metric depth or temporal tracking.
@@ -65,7 +72,8 @@ and [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 The source repository deliberately excludes model weights and runtime binaries.
 `THIRD_PARTY_NOTICES.md` identifies every redistributed component and its
 licence. Only Depth Anything V2 Small is supported; non-commercial model
-variants are intentionally excluded.
+variants are intentionally excluded. The release ONNX is the mechanically
+rewired Small graph described above, not a different checkpoint.
 
 ### Limitations
 
@@ -81,6 +89,12 @@ is more important than deterministic independent frames.
 DepthGen は、ソースレイヤーから **相対深度** マップを生成する MIT ライセンスの
 After Effects エフェクトです。Apache-2.0 の Depth Anything V2 Small と ONNX
 Runtime を使用します。初期設定では白が近景、黒が遠景です。
+
+同梱する ONNX は Small の重みそのものは変えていません。GPU ランタイムがグラフ
+全体を実行できるよう、補間ノードの配線だけを組み替えています。バイリニア拡大は
+定数スケールを使い、位置埋め込みテーブルは三次ではなく線形で再サンプリング
+します。正規化後の深度マップでの平均絶対誤差はおよそ 0.3% です。詳細は
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md) を参照してください。
 
 単一画像だけから実距離を保証することはできないため、用途はコンポジット、深度
 マット、深度対応エフェクトです。メートル単位の距離や時間追跡は提供しません。
@@ -131,6 +145,8 @@ macOS:
 ソースリポジトリにはモデル重みとランタイムバイナリを含めていません。
 `THIRD_PARTY_NOTICES.md` に再配布コンポーネントとライセンスを記載しています。
 Depth Anything V2 Small のみをサポートし、非商用モデル variant は意図的に除外しています。
+配布する ONNX は別チェックポイントではなく、上記のとおり補間配線だけを機械的に
+組み替えた Small グラフです。
 
 ### 制限事項
 
@@ -145,6 +161,11 @@ DepthGen は各フレームを独立に推定します。AE の任意順レン�
 DepthGen 是一个 MIT 许可的 After Effects 效果，可从源图层生成 **相对深度** 图。
 它使用 Apache-2.0 的 Depth Anything V2 Small 和 ONNX Runtime。默认情况下白色表示
 较近、黑色表示较远。
+
+随附的 ONNX 保持 Small 的原始权重不变。DepthGen 仅改写插值接线，以便 GPU 运行时
+执行整个图：双线性上采样使用常量缩放，位置编码表使用线性而非三次重采样。归一化
+深度图的平均绝对误差约为 0.3%。详见
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md)。
 
 它适用于合成、深度遮罩和深度感知效果，并不保证真实世界的米制距离或时间跟踪。
 
@@ -192,6 +213,7 @@ macOS:
 源代码仓库有意不包含模型权重和运行时二进制文件。
 `THIRD_PARTY_NOTICES.md` 列出所有再分发组件及其许可。
 仅支持 Depth Anything V2 Small；非商用模型变体被有意排除。
+发行用 ONNX 不是另一个检查点，而是按上文机械改写插值接线后的 Small 图。
 
 ### 限制
 
@@ -206,6 +228,12 @@ DepthGen 独立估计每一帧。这对 AE 的任意顺序渲染器是正确的�
 DepthGen은 소스 레이어에서 **상대 깊이** 맵을 만드는 MIT 라이선스 After Effects
 효과입니다. Apache-2.0 Depth Anything V2 Small과 ONNX Runtime을 사용하며, 기본값은
 흰색이 가까움, 검은색이 멂을 의미합니다.
+
+제공되는 ONNX는 Small의 가중치를 바꾸지 않습니다. GPU 런타임이 그래프 전체를
+실행할 수 있도록 보간 노드 연결만 재구성합니다. 이중선형 업샘플은 상수 스케일을
+쓰고, positional-embedding 테이블은 cubic 대신 linear로 재샘플링합니다. 정규화된
+깊이 맵의 평균 절대 오차는 약 0.3%입니다. 자세한 내용은
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md)를 참조하십시오.
 
 합성, 깊이 매트 및 깊이 인식 효과를 위한 도구이며 실제 거리나 시간 추적을 보장하지
 않습니다.
@@ -255,6 +283,8 @@ macOS:
 소스 저장소에는 모델 가중치와 런타임 바이너리를 포함하지 않습니다.
 `THIRD_PARTY_NOTICES.md`에 재배포 구성 요소와 라이선스를 기재했습니다.
 Depth Anything V2 Small만 지원하며, 비상업용 모델 변형은 의도적으로 제외했습니다.
+배포 ONNX는 다른 체크포인트가 아니라, 위에서 설명한 대로 보간 연결만 기계적으로
+다시 엮은 Small 그래프입니다.
 
 ### 제한 사항
 

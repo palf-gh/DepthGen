@@ -10,7 +10,7 @@
 #endif
 #define DEPTHGEN_CATEGORY "3D Channel"
 #define DEPTHGEN_DESCRIPTION "\nRelative depth-map generation powered by Depth Anything V2 Small."
-#define DEPTHGEN_SUPPORT_URL "https://github.com/PALF-MovieWorks/DepthGen"
+#define DEPTHGEN_SUPPORT_URL "https://github.com/palf-gh/DepthGen"
 
 // The PiPL floor intentionally matches AE 2022-era SmartFX/MFR support.
 #define DEPTHGEN_PIPL_SPEC_VERSION 13
