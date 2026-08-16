@@ -9,7 +9,7 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
 
 ## Branches
 
-- `main` is release-ready history.
+- `main` is the GitHub default branch and release-ready history.
 - `develop` is the permanent integration branch.
 - Cut topic branches from `develop`; do not rewrite history, force-push,
   squash, rebase, or commit directly to `main` without explicit approval.
