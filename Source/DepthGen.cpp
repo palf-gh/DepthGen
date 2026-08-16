@@ -107,7 +107,7 @@ void WriteSequence(DepthGenSequenceData* sequence, bool flat, std::uint64_t cach
 	sequence->cache_id = cache_id;
 }
 
-PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data, std::uint64_t cache_id, bool mint_id) {
+PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data) {
 	PF_Handle handle = NewSequenceHandle(in_data, static_cast<A_long>(sizeof(DepthGenSequenceData)));
 	if (!handle) {
 		return PF_Err_OUT_OF_MEMORY;
@@ -117,11 +117,7 @@ PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data, std::uint64_t 
 		DisposeSequenceHandle(in_data, handle);
 		return PF_Err_OUT_OF_MEMORY;
 	}
-	if (mint_id || cache_id == 0) {
-		cache_id = depthgen::TemporalCacheCreate();
-	} else {
-		(void)depthgen::TemporalCacheGet(cache_id);
-	}
+	const std::uint64_t cache_id = depthgen::TemporalCacheCreate();
 	WriteSequence(sequence, false, cache_id);
 	UnlockSequenceHandle(in_data, handle);
 	if (out_data) {
@@ -134,7 +130,7 @@ PF_Err SequenceSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!in_data || !out_data) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
-	return AllocateSequence(in_data, out_data, 0, true);
+	return AllocateSequence(in_data, out_data);
 }
 
 PF_Err SequenceSetdown(PF_InData* in_data, PF_OutData* out_data) {
@@ -189,18 +185,25 @@ PF_Err SequenceResetup(PF_InData* in_data, PF_OutData* out_data) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	if (!in_data->sequence_data) {
-		return AllocateSequence(in_data, out_data, 0, true);
+		return AllocateSequence(in_data, out_data);
 	}
 	void* locked = LockSequenceHandle(in_data, in_data->sequence_data);
 	const auto* header = reinterpret_cast<const DepthGenSequenceData*>(locked);
 	const bool already_unflat = SequenceLooksValid(header) && (header->flags & kSequenceFlagFlat) == 0;
-	const std::uint64_t cache_id = SequenceCacheId(header);
 	UnlockSequenceHandle(in_data, in_data->sequence_data);
 	if (already_unflat) {
 		out_data->sequence_data = in_data->sequence_data;
 		return PF_Err_NONE;
 	}
-	return AllocateSequence(in_data, out_data, cache_id, false);
+	// The flat handle's cache_id is not adopted here: After Effects persists it
+	// into the project file and copies it on duplicate, so a restored id can
+	// collide with a live one or be shared by two instances. Mint a fresh id
+	// instead, and only free the flat handle once the new one exists.
+	const PF_Err err = AllocateSequence(in_data, out_data);
+	if (err == PF_Err_NONE) {
+		DisposeSequenceHandle(in_data, in_data->sequence_data);
+	}
+	return err;
 }
 
 PF_Handle SequenceHandleFromRender(PF_InData* in_data) {
@@ -330,10 +333,18 @@ PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!out_data->global_data) return PF_Err_OUT_OF_MEMORY;
 	DepthGenGlobalData* data = reinterpret_cast<DepthGenGlobalData*>(
 		suites.HandleSuite1()->host_lock_handle(out_data->global_data));
-	if (!data) return PF_Err_OUT_OF_MEMORY;
+	if (!data) {
+		(void)suites.HandleSuite1()->host_dispose_handle(out_data->global_data);
+		out_data->global_data = nullptr;
+		return PF_Err_OUT_OF_MEMORY;
+	}
 	data->plugin_id = 0;
 	const PF_Err err = suites.UtilitySuite5()->AEGP_RegisterWithAEGP(nullptr, DEPTHGEN_NAME, &data->plugin_id);
 	suites.HandleSuite1()->host_unlock_handle(out_data->global_data);
+	if (err) {
+		(void)suites.HandleSuite1()->host_dispose_handle(out_data->global_data);
+		out_data->global_data = nullptr;
+	}
 	return err;
 }
 
@@ -371,9 +382,8 @@ PF_Err ParamsSetup(PF_InData* in_data, PF_OutData* out_data) {
 	AEFX_CLR_STRUCT(def);
 	PF_ADD_CHECKBOX(GetString(DepthGenString::Invert, in_data), "On", FALSE, 0, DEPTHGEN_INVERT);
 	AEFX_CLR_STRUCT(def);
-	def.flags = PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;
 	PF_ADD_FLOAT_SLIDERX(GetString(DepthGenString::TemporalStability, in_data), 0, 100, 0, 100, 0, 1,
-		PF_ValueDisplayFlag_PERCENT, 0, DEPTHGEN_TEMPORAL_STABILITY);
+		PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS, DEPTHGEN_TEMPORAL_STABILITY);
 	AEFX_CLR_STRUCT(def);
 	def.ui_flags = PF_PUI_INVISIBLE;
 	def.flags = PF_ParamFlag_CANNOT_TIME_VARY | PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;

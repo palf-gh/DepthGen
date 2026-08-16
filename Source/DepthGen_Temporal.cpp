@@ -298,9 +298,11 @@ std::shared_ptr<TemporalHistory> TemporalCacheGet(std::uint64_t id) {
 	std::lock_guard<std::mutex> lock(table.mutex);
 	auto found = table.histories.find(id);
 	if (found == table.histories.end()) {
-		auto history = std::make_shared<TemporalHistory>();
-		table.histories.emplace(id, history);
-		return history;
+		// Pure lookup: a miss means nothing is adopted for this id, not that a
+		// new history should be created. Ids now originate only from
+		// TemporalCacheCreate, so a stale or foreign id (e.g. restored from a
+		// persisted flat sequence handle) must not silently grow this table.
+		return nullptr;
 	}
 	return found->second;
 }
