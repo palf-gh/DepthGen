@@ -10,7 +10,9 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <exception>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -426,14 +428,24 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
 	err = extra->cb->checkout_layer_pixels(in_data->effect_ref, DEPTHGEN_INPUT, &input);
 	if (!err) err = extra->cb->checkout_output(in_data->effect_ref, &output);
 	if (!err && input && output) {
-		AEFX_SuiteScoper<PF_WorldSuite2> world_suite(in_data, kPFWorldSuite, kPFWorldSuiteVersion2, out_data);
-		PF_PixelFormat format = PF_PixelFormat_INVALID;
-		err = world_suite->PF_GetPixelFormat(input, &format);
-		if (!err) {
-			const auto history = HistoryFromSequence(in_data);
-			err = DepthGen_RenderWorld(in_data, out_data, format, input, output,
-				reinterpret_cast<DepthGenPreRenderData*>(extra->input->pre_render_data)->settings,
-				history.get(), in_data->current_time, in_data->time_step);
+		try {
+			AEFX_SuiteScoper<PF_WorldSuite2> world_suite(in_data, kPFWorldSuite, kPFWorldSuiteVersion2, out_data);
+			PF_PixelFormat format = PF_PixelFormat_INVALID;
+			err = world_suite->PF_GetPixelFormat(input, &format);
+			if (!err) {
+				const auto history = HistoryFromSequence(in_data);
+				err = DepthGen_RenderWorld(in_data, out_data, format, input, output,
+					reinterpret_cast<DepthGenPreRenderData*>(extra->input->pre_render_data)->settings,
+					history.get(), in_data->current_time, in_data->time_step);
+			}
+		} catch (const A_long thrown) {
+			err = thrown;
+		} catch (const std::bad_alloc&) {
+			err = PF_Err_OUT_OF_MEMORY;
+		} catch (const std::exception&) {
+			err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+		} catch (...) {
+			err = PF_Err_INTERNAL_STRUCT_DAMAGED;
 		}
 	}
 	if (input) (void)extra->cb->checkin_layer_pixels(in_data->effect_ref, DEPTHGEN_INPUT);
@@ -601,31 +613,46 @@ extern "C" DllExport
 PF_Err EffectMain(
 	PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data, PF_ParamDef* params[],
 	PF_LayerDef* output, void* extra) {
-	switch (cmd) {
-	case PF_Cmd_ABOUT:
-		PF_SPRINTF(out_data->return_msg, "%s v%d.%d\\r%s", DEPTHGEN_NAME,
-			DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_DESCRIPTION);
-		return PF_Err_NONE;
-	case PF_Cmd_GLOBAL_SETUP: return GlobalSetup(in_data, out_data);
-	case PF_Cmd_GLOBAL_SETDOWN: return GlobalSetdown(in_data);
-	case PF_Cmd_PARAMS_SETUP: return ParamsSetup(in_data, out_data);
-	case PF_Cmd_SEQUENCE_SETUP: return SequenceSetup(in_data, out_data);
-	case PF_Cmd_SEQUENCE_SETDOWN: return SequenceSetdown(in_data, out_data);
-	case PF_Cmd_SEQUENCE_FLATTEN: return SequenceFlatten(in_data, out_data);
-	case PF_Cmd_SEQUENCE_RESETUP: return SequenceResetup(in_data, out_data);
-	case PF_Cmd_GET_FLATTENED_SEQUENCE_DATA: return GetFlattenedSequenceData(in_data, out_data);
-	case PF_Cmd_SMART_PRE_RENDER: return PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra));
-	case PF_Cmd_SMART_RENDER: return SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra));
-	case PF_Cmd_USER_CHANGED_PARAM:
-		if (extra) {
-			const A_long index = reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index;
-			if (index == ParamIndexFromID(DEPTHGEN_QUALITY) || index == ParamIndexFromID(DEPTHGEN_MODEL)) {
-				return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+	PF_Err err = PF_Err_NONE;
+	try {
+		switch (cmd) {
+		case PF_Cmd_ABOUT:
+			PF_SPRINTF(out_data->return_msg, "%s v%d.%d\\r%s", DEPTHGEN_NAME,
+				DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_DESCRIPTION);
+			break;
+		case PF_Cmd_GLOBAL_SETUP: err = GlobalSetup(in_data, out_data); break;
+		case PF_Cmd_GLOBAL_SETDOWN: err = GlobalSetdown(in_data); break;
+		case PF_Cmd_PARAMS_SETUP: err = ParamsSetup(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_SETUP: err = SequenceSetup(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_SETDOWN: err = SequenceSetdown(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_FLATTEN: err = SequenceFlatten(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_RESETUP: err = SequenceResetup(in_data, out_data); break;
+		case PF_Cmd_GET_FLATTENED_SEQUENCE_DATA: err = GetFlattenedSequenceData(in_data, out_data); break;
+		case PF_Cmd_SMART_PRE_RENDER: err = PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra)); break;
+		case PF_Cmd_SMART_RENDER: err = SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra)); break;
+		case PF_Cmd_USER_CHANGED_PARAM:
+			if (extra) {
+				const A_long index = reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index;
+				if (index == ParamIndexFromID(DEPTHGEN_QUALITY) || index == ParamIndexFromID(DEPTHGEN_MODEL)) {
+					err = DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+					break;
+				}
 			}
+			break;
+		case PF_Cmd_UPDATE_PARAMS_UI:
+			err = DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+			break;
+		default: break;
 		}
-		return PF_Err_NONE;
-	case PF_Cmd_UPDATE_PARAMS_UI:
-		return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	default: return PF_Err_NONE;
+	} catch (const A_long thrown) {
+		// PF_Err is A_long: MissingSuiteError and A_THROW both arrive here.
+		err = thrown;
+	} catch (const std::bad_alloc&) {
+		err = PF_Err_OUT_OF_MEMORY;
+	} catch (const std::exception&) {
+		err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+	} catch (...) {
+		err = PF_Err_INTERNAL_STRUCT_DAMAGED;
 	}
+	return err;
 }
