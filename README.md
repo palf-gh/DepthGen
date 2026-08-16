@@ -8,10 +8,10 @@
 
 ## English
 
-DepthGen is an MIT-licensed Adobe After Effects effect which converts its
-source layer into an AI-estimated **relative** depth map. A **Model** popup
-selects ZipDepth Base NPU (speed) or Depth Anything V2 Small (quality). White
-means nearer apparent depth by default; black means farther apparent depth.
+DepthGen is an Adobe After Effects effect which converts its source layer into
+an AI-estimated **relative** depth map. A **Model** popup selects ZipDepth
+Base NPU (speed) or Depth Anything V2 Small (quality). White means nearer
+apparent depth by default; black means farther apparent depth.
 
 Both ONNX graphs are embedded in the plug-in executable. ZipDepth is an IR-v8 /
 opset-17 export of the pinned MIT NPU checkpoint (`[0,1]` planar RGB, 32-pixel
@@ -96,10 +96,9 @@ per-pixel speckle can still be handled with a downstream temporal workflow.
 
 **現在のプラグインバージョン: 1.0.0（リリース）**
 
-DepthGen は、ソースレイヤーから **相対深度** マップを生成する MIT ライセンスの
-After Effects エフェクトです。**モデル** ポップアップで ZipDepth Base NPU
-（速度優先）または Depth Anything V2 Small（品質優先）を選びます。初期設定では
-白が近景、黒が遠景です。
+DepthGen は、ソースレイヤーから **相対深度** マップを生成する After Effects
+エフェクトです。**モデル** ポップアップで ZipDepth Base NPU（速度優先）または
+Depth Anything V2 Small（品質優先）を選びます。初期設定では白が近景、黒が遠景です。
 
 両 ONNX は実行バイナリに埋め込みます。ZipDepth は MIT の NPU チェックポイントから
 生成した IR v8 / opset 17 グラフ（`[0,1]` planar RGB、32 px 境界）です。
@@ -177,7 +176,7 @@ Multi-Frame Rendering やランダムなフレームアクセスでは初回に�
 
 **当前插件版本：1.0.0（正式版）**
 
-DepthGen 是一个 MIT 许可的 After Effects 效果，可从源图层生成 **相对深度** 图。
+DepthGen 是一个 After Effects 效果，可从源图层生成 **相对深度** 图。
 **模型** 弹出菜单可选择 ZipDepth Base NPU（速度优先）或 Depth Anything V2 Small
 （质量优先）。默认情况下白色表示较近、黑色表示较远。
 
@@ -251,9 +250,9 @@ Small。发行用 ONNX 由仓库中的导出工具生成，并在推理前通过
 
 **현재 플러그인 버전: 1.0.0(릴리스)**
 
-DepthGen은 소스 레이어에서 **상대 깊이** 맵을 만드는 MIT 라이선스 After Effects
-효과입니다. **모델** 팝업에서 ZipDepth Base NPU(속도 우선) 또는 Depth Anything V2
-Small(품질 우선)을 선택합니다. 기본값은 흰색이 가까움, 검은색이 멂입니다.
+DepthGen은 소스 레이어에서 **상대 깊이** 맵을 만드는 After Effects 효과입니다.
+**모델** 팝업에서 ZipDepth Base NPU(속도 우선) 또는 Depth Anything V2 Small
+(품질 우선)을 선택합니다. 기본값은 흰색이 가까움, 검은색이 멂입니다.
 
 두 ONNX는 실행 파일에 내장됩니다. ZipDepth는 MIT NPU 체크포인트의 IR v8 / opset 17
 그래프(`[0,1]` planar RGB, 32픽셀 정렬)입니다. Depth Anything V2 Small은 Apache-2.0
