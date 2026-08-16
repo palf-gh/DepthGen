@@ -101,7 +101,7 @@ per-pixel speckle can still be handled with a downstream temporal workflow.
 **1.0.1**
 
 - **Crash fixes:** an exception barrier now stops C++ exceptions from unwinding into After Effects; the effect no longer drives parameter UI updates from sequence selectors; host message writes are bounded; world pixel-data pointers and percentile indices are guarded; ONNX Runtime objects now live for the process lifetime so quitting After Effects cannot tear them down in the wrong order.
-- **ONNX Runtime isolation** (the headline fix): DepthGen now extracts and loads its runtime as `DepthGen-onnxruntime.dll` and binds the API explicitly, so it can no longer be bound to the copy of `onnxruntime.dll` that After Effects itself loads. A plain `onnxruntime.dll` placed beside the plug-in is no longer used — a developer sidecar must now be named `DepthGen-onnxruntime.dll`.
+- **ONNX Runtime isolation:** DepthGen now extracts and loads its runtime as `DepthGen-onnxruntime.dll` and binds the API explicitly, so it can no longer be bound to the copy of `onnxruntime.dll` that After Effects itself loads. On After Effects 2023, whose bundled runtime is older than the one DepthGen pins, that coupling was a certain crash on first inference; on newer hosts it silently ran DepthGen on an untested runtime build. A plain `onnxruntime.dll` placed beside the plug-in is no longer used — a developer sidecar must now be named `DepthGen-onnxruntime.dll`.
 - **Inference size cap** (behaviour change): the inference long edge is now capped at 4096 px. Ordinary 16:9 and 9:16 material is unaffected at every preset tier. The cap engages when the source aspect ratio exceeds 4096 divided by the requested short edge — so at Custom 2160 that is roughly 1.9:1, meaning 2.35:1 and 2.39:1 scope masters now infer at a lower effective short edge than requested. This bounds memory that previously grew without limit.
 - **Cancellation:** long inferences can now be interrupted by After Effects instead of appearing to hang.
 - **Temporal Stability cache** (behaviour change): the temporal history is no longer carried across a saved project or a duplicated effect instance, so the first frame after loading or duplicating renders unadjusted. This prevents duplicated instances from sharing and corrupting one another's cache.
@@ -197,7 +197,7 @@ Multi-Frame Rendering やランダムなフレームアクセスでは初回に�
 **1.0.1**
 
 - **クラッシュ修正**: 例外バリアにより、C++ の例外が After Effects 側へ伝播しなくなりました。エフェクトはシーケンスセレクターからパラメータ UI の更新を行わなくなりました。ホストへのメッセージ書き込みは長さを制限しました。ワールドのピクセルデータへのポインタと percentile のインデックスにガードを追加しました。ONNX Runtime のオブジェクトはプロセスの生存期間だけ保持するようにしたため、After Effects の終了時に誤った順序で破棄されることがなくなりました。
-- **ONNX Runtime の分離**（今回の目玉修正）: DepthGen はランタイムを `DepthGen-onnxruntime.dll` として展開・読み込みし、API を明示的にバインドするようになりました。これにより、After Effects 自身が読み込む `onnxruntime.dll` に結びつくことがなくなります。プラグインの隣に置くだけの `onnxruntime.dll` はもう使われません。開発用サイドカーは `DepthGen-onnxruntime.dll` という名前にする必要があります。
+- **ONNX Runtime の分離**: DepthGen はランタイムを `DepthGen-onnxruntime.dll` として展開・読み込みし、API を明示的にバインドするようになりました。これにより、After Effects 自身が読み込む `onnxruntime.dll` に結びつくことがなくなります。同梱ランタイムが DepthGen の固定版より古い After Effects 2023 では、この結びつきは初回推論時の確実なクラッシュにつながっていました。それより新しいホストでは、検証していないランタイムビルド上で DepthGen が黙って動作していました。プラグインの隣に置くだけの `onnxruntime.dll` はもう使われません。開発用サイドカーは `DepthGen-onnxruntime.dll` という名前にする必要があります。
 - **推論サイズの上限（挙動の変更）**: 推論の長辺を 4096 px に制限しました。通常の 16:9 および 9:16 素材はどのプリセット段階でも影響を受けません。この上限は、ソースのアスペクト比が「4096 ÷ 要求短辺」を超えると働きます。Custom 2160 ではおよそ 1.9:1 に相当するため、2.35:1 や 2.39:1 のシネスコ素材は、要求した値より低い実効短辺で推論されるようになります。これにより、以前は際限なく増えていたメモリ使用量に上限がつきます。
 - **キャンセル**: 長時間かかる推論処理を After Effects 側から中断できるようになり、処理がハングしているように見える状態を防ぎます。
 - **時間安定のキャッシュ（挙動の変更）**: 時間安定の履歴は、プロジェクトの保存やエフェクトの複製をまたいで保持されなくなりました。読み込み直後や複製直後の最初のフレームは補正されずにレンダリングされます。これにより、複製したインスタンス同士がキャッシュを共有して破損させることを防ぎます。
@@ -285,7 +285,7 @@ Base NPU 与 Apache-2.0 [Depth Anything V2 Small](https://github.com/DepthAnythi
 **1.0.1**
 
 - **崩溃修复**：新增异常屏障，阻止 C++ 异常传播到 After Effects；效果不再由序列选择器驱动参数 UI 更新；对主机的消息写入长度已加以限制；已为 World 像素数据指针和百分位索引加入保护；ONNX Runtime 对象现在与进程同生命周期，避免退出 After Effects 时以错误顺序被析构。
-- **ONNX Runtime 隔离**（本次主要修复）：DepthGen 现在将运行时解压并加载为 `DepthGen-onnxruntime.dll`，并显式绑定其 API，因此不会再被绑定到 After Effects 自身加载的 `onnxruntime.dll` 副本。放在插件旁边的普通 `onnxruntime.dll` 已不再使用——开发者 sidecar 现在必须命名为 `DepthGen-onnxruntime.dll`。
+- **ONNX Runtime 隔离**：DepthGen 现在将运行时解压并加载为 `DepthGen-onnxruntime.dll`，并显式绑定其 API，因此不会再被绑定到 After Effects 自身加载的 `onnxruntime.dll` 副本。在随附运行时早于 DepthGen 固定版本的 After Effects 2023 上，这种绑定会导致首次推理必然崩溃；在更新的宿主上，DepthGen 则会在未经验证的运行时构建上静默运行。放在插件旁边的普通 `onnxruntime.dll` 已不再使用——开发者 sidecar 现在必须命名为 `DepthGen-onnxruntime.dll`。
 - **推理尺寸上限**（行为变化）：推理长边现已限制为 4096 px。普通的 16:9 与 9:16 素材在所有预设档位下均不受影响。当源素材宽高比超过“4096 除以所需短边”时触发上限；以 Custom 2160 为例约为 1.9:1，因此 2.35:1 与 2.39:1 的宽银幕母版现在会以低于所需值的实际短边进行推理。此举为此前会无限增长的内存使用设置了上限。
 - **取消**：现在可以由 After Effects 中断长时间的推理，而不再表现为卡死。
 - **时间稳定缓存**（行为变化）：时间稳定的历史数据不再跨保存的工程或跨复制的效果实例保留，因此载入或复制后的第一帧会以未调整的状态渲染。这可防止多个复制实例共享并破坏彼此的缓存。
@@ -376,7 +376,7 @@ Multi-Frame Rendering이나 임의 프레임 접근에서는 첫 패스에 이�
 **1.0.1**
 
 - **충돌 수정**: 예외 방벽이 C++ 예외가 After Effects로 전파되는 것을 막습니다. 이펙트가 더 이상 시퀀스 선택기에서 파라미터 UI 업데이트를 유발하지 않습니다. 호스트로의 메시지 쓰기 길이를 제한했습니다. World 픽셀 데이터 포인터와 percentile 인덱스에 보호 장치를 추가했습니다. ONNX Runtime 객체가 이제 프로세스 수명 동안 유지되므로 After Effects 종료 시 잘못된 순서로 해제되지 않습니다.
-- **ONNX Runtime 격리**(이번 릴리스의 핵심 수정): DepthGen은 이제 런타임을 `DepthGen-onnxruntime.dll`로 추출·로드하고 API를 명시적으로 바인딩하므로, After Effects 자체가 로드하는 `onnxruntime.dll` 사본에 바인딩될 수 없습니다. 플러그인 옆에 둔 일반 `onnxruntime.dll`은 더 이상 사용되지 않습니다. 개발자용 sidecar는 이제 `DepthGen-onnxruntime.dll`이라는 이름이어야 합니다.
+- **ONNX Runtime 격리**: DepthGen은 이제 런타임을 `DepthGen-onnxruntime.dll`로 추출·로드하고 API를 명시적으로 바인딩하므로, After Effects 자체가 로드하는 `onnxruntime.dll` 사본에 바인딩될 수 없습니다. 번들 런타임이 DepthGen이 고정한 버전보다 오래된 After Effects 2023에서는 이 결합이 첫 추론 시 확실한 충돌로 이어졌고, 그보다 새로운 호스트에서는 검증되지 않은 런타임 빌드 위에서 DepthGen이 조용히 동작했습니다. 플러그인 옆에 둔 일반 `onnxruntime.dll`은 더 이상 사용되지 않습니다. 개발자용 sidecar는 이제 `DepthGen-onnxruntime.dll`이라는 이름이어야 합니다.
 - **추론 크기 상한**(동작 변경): 추론 긴 변이 이제 4096 px로 제한됩니다. 일반적인 16:9 및 9:16 소재는 모든 프리셋 단계에서 영향을 받지 않습니다. 이 상한은 소스 종횡비가 "4096 ÷ 요청된 짧은 변"을 초과할 때 적용됩니다. Custom 2160에서는 약 1.9:1에 해당하므로 2.35:1 및 2.39:1 스코프 마스터는 이제 요청한 값보다 낮은 실제 짧은 변으로 추론됩니다. 이전에는 한없이 늘어나던 메모리 사용량이 이제 제한됩니다.
 - **취소**: 긴 추론을 이제 After Effects에서 중단할 수 있어, 멈춘 것처럼 보이는 상태를 방지합니다.
 - **시간 안정성 캐시**(동작 변경): 시간 안정성 기록은 이제 저장된 프로젝트나 복제된 이펙트 인스턴스 간에 유지되지 않으므로, 불러오거나 복제한 직후의 첫 프레임은 보정 없이 렌더링됩니다. 이는 복제된 인스턴스끼리 캐시를 공유해 서로 손상시키는 것을 방지합니다.

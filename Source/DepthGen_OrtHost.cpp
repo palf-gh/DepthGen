@@ -301,8 +301,11 @@ bool TryLoadAndInit(const std::filesystem::path& dll_path, std::string* error) {
 // rationale comment there.
 OrtStatus* AppendDmlExecutionProviderFromHost(OrtSessionOptions* options, int device_id) {
 #if defined(DEPTHGEN_ORT_DML)
+	// Resolved on every call rather than cached: this runs only while a session
+	// is being created, and a cached null would disable DirectML for the rest
+	// of the process if it were ever reached before the module was loaded.
 	using AppendDmlFn = decltype(&OrtSessionOptionsAppendExecutionProvider_DML);
-	static const AppendDmlFn append_dml = reinterpret_cast<AppendDmlFn>(
+	const AppendDmlFn append_dml = reinterpret_cast<AppendDmlFn>(
 		g_ort_module ? GetProcAddress(g_ort_module, "OrtSessionOptionsAppendExecutionProvider_DML") : nullptr);
 	if (!append_dml) {
 		throw std::runtime_error(
