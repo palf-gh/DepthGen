@@ -93,10 +93,16 @@ if(DEPTHGEN_ENABLE_ONNX_RUNTIME AND DEPTHGEN_ORT_ROOT)
   if(DEPTHGEN_ORT_INCLUDE_DIR AND DEPTHGEN_ORT_LIBRARY)
     set(DEPTHGEN_HAS_ORT TRUE)
     target_include_directories(DepthGen PRIVATE "${DEPTHGEN_ORT_INCLUDE_DIR}")
-    target_link_libraries(DepthGen PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
-    if(WIN32 AND MSVC)
-      target_link_libraries(DepthGen PRIVATE delayimp)
-      target_link_options(DepthGen PRIVATE "/DELAYLOAD:onnxruntime.dll")
+    if(WIN32)
+      # The plug-in binds the ONNX Runtime API manually from its privately
+      # named, LocalAppData-extracted runtime (see DepthGen_OrtHost.cpp), so
+      # it can never bind to a copy of onnxruntime.dll that After Effects (or
+      # another ORT-hosting Adobe application) has already loaded under that
+      # same base name. No import library, delay-load helper, or /DELAYLOAD
+      # directive is linked for this target.
+      target_compile_definitions(DepthGen PRIVATE ORT_API_MANUAL_INIT)
+    else()
+      target_link_libraries(DepthGen PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
     endif()
     target_compile_definitions(DepthGen PRIVATE DEPTHGEN_HAS_ORT=1 DEPTHGEN_EMBEDDED_MODEL=1)
     if(TARGET depthgen_build_model)
@@ -602,6 +608,46 @@ if(DEPTHGEN_BUILD_TESTS)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
           "$<TARGET_FILE_DIR:depthgen_benchmark>")
     endif()
+  endif()
+  if(WIN32 AND DEPTHGEN_HAS_ORT)
+    # Exercises DepthGen_OrtHost.cpp's extraction primitives directly. Built
+    # without ORT_API_MANUAL_INIT, so it needs no ONNX Runtime SDK link at
+    # all: the non-manual-init path touches only Win32 and filesystem APIs.
+    add_executable(depthgen_orthost_tests
+      tests/DepthGenOrtHostTests.cpp
+      Source/DepthGen_OrtHost.cpp)
+    target_include_directories(depthgen_orthost_tests PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_definitions(depthgen_orthost_tests PRIVATE DEPTHGEN_HAS_ORT=1 _CRT_SECURE_NO_WARNINGS)
+    if(MSVC)
+      target_compile_options(depthgen_orthost_tests PRIVATE /utf-8 /W4 /permissive-)
+    endif()
+    add_test(NAME depthgen_orthost_tests COMMAND depthgen_orthost_tests)
+
+    # The manual-init loader ships only in DepthGen.aex, so nothing else covers
+    # it. A DirectML entry point that cannot be resolved degrades to a CPU
+    # session without a message, which no host-side smoke test would notice.
+    # The runtime is copied in under its private name so the sidecar branch of
+    # EnsureOnnxRuntimeLoaded is reachable from a test executable.
+    add_executable(depthgen_orthost_manual_tests
+      tests/DepthGenOrtHostManualTests.cpp
+      Source/DepthGen_OrtHost.cpp)
+    # Links no import library, matching the plug-in exactly: under manual init
+    # every call routes through the bound API table, so an import here would
+    # both diverge from the shipping configuration and make the executable
+    # depend on onnxruntime.dll at start-up.
+    target_include_directories(depthgen_orthost_manual_tests PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
+    target_compile_definitions(depthgen_orthost_manual_tests PRIVATE DEPTHGEN_HAS_ORT=1
+      ORT_API_MANUAL_INIT _CRT_SECURE_NO_WARNINGS ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
+    if(MSVC)
+      target_compile_options(depthgen_orthost_manual_tests PRIVATE /utf-8 /W4 /permissive-)
+    endif()
+    add_custom_command(TARGET depthgen_orthost_manual_tests POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${DEPTHGEN_ORT_DLL}"
+        "$<TARGET_FILE_DIR:depthgen_orthost_manual_tests>/DepthGen-onnxruntime.dll"
+      COMMENT "Staging the privately named ONNX Runtime for the manual-init test")
+    add_test(NAME depthgen_orthost_manual_init COMMAND "$<TARGET_FILE:depthgen_orthost_manual_tests>")
   endif()
   if(DEPTHGEN_HAS_ORT)
     add_executable(depthgen_model_validation

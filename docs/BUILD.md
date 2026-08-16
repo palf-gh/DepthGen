@@ -96,10 +96,20 @@ The build embeds the SHA-256-verified
 `zipdepth_base_npu_dynamic.onnx` and `depth_anything_v2_vits_dml.onnx` as Windows
 `RCDATA` resources 256/257 or read-only macOS Mach-O sections `__zipdepth` and
 `__dav2`. ONNX Runtime creates sessions directly from those bytes; release layouts
-contain no ONNX sidecar. On Windows, `onnxruntime.dll` is also embedded as
-`RCDATA` 258 and delay-loaded from `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\`
-after the first extract. The 1.0.0 Windows ship layout is a single
-`DepthGen.aex`; do not copy a sidecar DLL into Plug-ins. macOS still ships
+contain no ONNX sidecar. On Windows, ONNX Runtime is also embedded as `RCDATA` 258 and extracted on
+first use to `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\<sha>\` — `<sha>` being
+the first 16 characters of the payload's SHA-256 — as
+`DepthGen-onnxruntime.dll`, then loaded from that path with an explicit
+`LoadLibraryW`. A `DepthGen-onnxruntime.dll` placed next to `DepthGen.aex` is
+checked first and takes precedence over the extracted copy, so a developer
+sidecar can override it; a plain `onnxruntime.dll` sidecar is not checked and
+is ignored. The plug-in binds the ONNX Runtime API by hand through
+`GetProcAddress` (`ORT_API_MANUAL_INIT`); it links no ONNX Runtime import
+library and does not use `/DELAYLOAD`. The private name and manual binding
+exist because After Effects ships its own `onnxruntime.dll` and the Windows
+loader matches modules by base name alone, so a shared name would let the
+plug-in bind to the host's runtime, or vice versa. The Windows ship layout is
+a single `DepthGen.aex`; do not copy a sidecar DLL into Plug-ins. macOS still ships
 ONNX Runtime inside `DepthGen.plugin/Contents/Frameworks`. Fetch and export both
 models once (the files are gitignored), then rebuild to relink them:
 
@@ -216,9 +226,19 @@ $env:DEPTHGEN_MODEL_PATH = 'C:\verified\zipdepth_base_npu_dynamic.onnx'
 `Resources/Models/zipdepth_base_npu_dynamic.onnx` を Windows `RCDATA`
 リソース、または読み取り専用の macOS Mach-O セクションへ埋め込みます。
 ONNX Runtime はそのバイトから直接セッションを作成し、リリース配置に ONNX
-サイドカーはありません。Windows では `onnxruntime.dll` も `RCDATA` 258 として
-埋め込み、初回実行時に `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\` へ展開して
-delay-load します。1.0.0 の Windows 配布物は単体の `DepthGen.aex` です。
+サイドカーはありません。Windows では ONNX Runtime も `RCDATA` 258 として埋め込み、初回使用時に
+`%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\<sha>\`（`<sha>` はペイロードの
+SHA-256 の先頭16文字）へ `DepthGen-onnxruntime.dll` として展開し、そのパスから
+明示的な `LoadLibraryW` で読み込みます。`DepthGen.aex` の隣に
+`DepthGen-onnxruntime.dll` を置くと展開済みコピーより先に読み込まれて優先さ
+れるため、開発用サイドカーで上書きできます。素の `onnxruntime.dll` サイド
+カーは確認されず、無視されます。プラグインは `GetProcAddress`
+（`ORT_API_MANUAL_INIT`）で ONNX Runtime の API を手動でバインドし、ONNX
+Runtime のインポートライブラリはリンクせず、`/DELAYLOAD` も使いません。専用
+名と手動バインドが必要な理由は、After Effects 自身が `onnxruntime.dll` を
+読み込んでおり、Windows のローダーがモジュールをベース名だけで解決するため、
+同名のままではプラグインがホスト側のランタイムに（またはその逆に）結びつき
+かねないからです。Windows の配布物は単体の `DepthGen.aex` です。
 Plug-ins に DLL を並べて置かないでください。macOS は従来どおり
 `DepthGen.plugin/Contents/Frameworks` にランタイムを同梱します。ピンした ZipDepth のソース／チェックポイントを取得し、
 動的 ONNX を一度エクスポートしてから（モデルファイルは gitignore）、再ビルド
@@ -326,9 +346,18 @@ SHA-256 和发行修订一并保存。公开发布门槛要求同一台机器上
 构建会将通过 SHA-256 验证的
 `Resources/Models/zipdepth_base_npu_dynamic.onnx` 嵌入 Windows `RCDATA`
 资源或只读 macOS Mach-O 段。ONNX Runtime 直接从这些字节创建会话；发行布局
-不含 ONNX sidecar。Windows 还将 `onnxruntime.dll` 作为 `RCDATA` 258 嵌入，首次
-运行时释放到 `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\` 再 delay-load。1.0.0
-的 Windows 交付物是单独的 `DepthGen.aex`，请勿在 Plug-ins 旁放置 sidecar DLL。
+不含 ONNX sidecar。Windows 上 ONNX Runtime 同样作为 `RCDATA` 258 嵌入，首次使用时释放到
+`%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\<sha>\`（`<sha>` 为该文件
+SHA-256 的前 16 个字符），命名为 `DepthGen-onnxruntime.dll`，再通过显式的
+`LoadLibraryW` 从该路径加载。若 `DepthGen.aex` 旁已放置
+`DepthGen-onnxruntime.dll`，会优先于释放出的缓存副本被加载，因此开发者可用
+该 sidecar 覆盖它；普通的 `onnxruntime.dll` sidecar 不会被检查，将被忽略。
+插件通过 `GetProcAddress`（`ORT_API_MANUAL_INIT`）手动绑定 ONNX Runtime
+API，不链接任何 ONNX Runtime 导入库，也不使用 `/DELAYLOAD`。之所以使用私有
+名称并手动绑定，是因为 After Effects 自身也会加载 `onnxruntime.dll`，而
+Windows 加载器仅按基础名称匹配模块，若使用相同名称，插件可能被绑定到宿主的
+运行时（反之亦然）。Windows 的交付布局是单独的 `DepthGen.aex`，请勿在
+Plug-ins 旁放置 sidecar DLL。
 macOS 仍将运行时放在 `DepthGen.plugin/Contents/Frameworks`。获取固定的 ZipDepth 源码/检查点并导出一次动态 ONNX
 （模型文件被 gitignore），然后重新构建以重新链接：
 
@@ -436,9 +465,20 @@ SHA-256, 릴리스 리비전과 함께 보관합니다. 공개 릴리스 게이�
 `Resources/Models/zipdepth_base_npu_dynamic.onnx`를 Windows `RCDATA` 리소스
 또는 읽기 전용 macOS Mach-O 섹션에 내장합니다. ONNX Runtime은 그 바이트에서
 바로 세션을 만들고, 릴리스 배치에는 ONNX sidecar가 없습니다. Windows에서는
-`onnxruntime.dll`도 `RCDATA` 258로 내장하고, 첫 실행 시
-`%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\`에 풀어 delay-load합니다. 1.0.0
-Windows 배포물은 단독 `DepthGen.aex`이며 Plug-ins 옆에 DLL을 두지 마십시오.
+ONNX Runtime도 `RCDATA` 258로 내장하고, 처음 사용할 때
+`%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\<sha>\`(`<sha>`는 해당 파일
+SHA-256의 앞 16자)에 `DepthGen-onnxruntime.dll`이라는 이름으로 풀어낸 뒤, 그
+경로에서 명시적인 `LoadLibraryW`로 로드합니다. `DepthGen.aex` 옆에
+`DepthGen-onnxruntime.dll`을 두면 캐시에 풀어낸 사본보다 먼저 로드되어
+우선하므로, 개발자용 sidecar로 재정의할 수 있습니다. 일반 `onnxruntime.dll`
+sidecar는 확인하지 않으며 무시됩니다. 플러그인은 `GetProcAddress`
+(`ORT_API_MANUAL_INIT`)로 ONNX Runtime API를 수동으로 바인딩하며, ONNX
+Runtime 임포트 라이브러리를 링크하지 않고 `/DELAYLOAD`도 사용하지 않습니다.
+전용 이름과 수동 바인딩이 필요한 이유는 After Effects 자체도
+`onnxruntime.dll`을 로드하는데 Windows 로더가 모듈을 기본 이름만으로
+매칭하기 때문입니다. 이름이 같으면 플러그인이 호스트의 런타임에(또는 그
+반대로) 바인딩될 수 있습니다. Windows 배포물은 단독 `DepthGen.aex`이며
+Plug-ins 옆에 DLL을 두지 마십시오.
 macOS는 계속 `DepthGen.plugin/Contents/Frameworks`에 런타임을 넣습니다. 고정한 ZipDepth
 소스/체크포인트를 가져와 동적 ONNX를 한 번 내보낸 뒤(모델 파일은 gitignore),
 다시 빌드해 다시 링크합니다:

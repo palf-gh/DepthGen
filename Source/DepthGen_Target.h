@@ -21,13 +21,13 @@
 #define DEPTHGEN_PIPL_HAS_SUPPORT_URL 0
 #define DEPTHGEN_VERSION_MAJOR 1
 #define DEPTHGEN_VERSION_MINOR 0
-#define DEPTHGEN_VERSION_BUG 0
+#define DEPTHGEN_VERSION_BUG 1
 #define DEPTHGEN_VERSION_STAGE 3
 #define DEPTHGEN_VERSION_BUILD 1
-// PF_VERSION(1, 0, 0, PF_Stage_RELEASE, 1), written literally for PiPLtool.
+// PF_VERSION(1, 0, 1, PF_Stage_RELEASE, 1), written literally for PiPLtool.
 // vers<<19 | subvers<<15 | bugvers<<11 | stage<<9 | build
-// = (1<<19)|(3<<9)|1 = 525825.
-#define DEPTHGEN_VERSION_PACKED 525825
+// = (1<<19)|(1<<11)|(3<<9)|1 = 527873.
+#define DEPTHGEN_VERSION_PACKED 527873
 
 // PF_OutFlag_DEEP_COLOR_AWARE | PF_OutFlag_SEND_UPDATE_PARAMS_UI |
 // PF_OutFlag_SEQUENCE_DATA_NEEDS_FLATTENING. PiPLtool needs a literal.

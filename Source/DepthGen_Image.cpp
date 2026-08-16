@@ -16,9 +16,22 @@ float Clamp01(float value) noexcept {
 // `values` may be reordered by the call.
 float PercentileFromUnsorted(std::vector<float>* values, float percentile) {
 	const size_t count = values->size();
-	const float position = Clamp01(percentile / 100.0f) * static_cast<float>(count - 1);
-	const size_t lower = static_cast<size_t>(std::floor(position));
-	const size_t upper = static_cast<size_t>(std::ceil(position));
+	if (count == 0) {
+		return 0.0f;
+	}
+	// Position is computed in double: above 2^24 elements, float has too few
+	// mantissa bits to represent (count - 1) exactly, and casting it back can
+	// round up to count, pushing `upper` one past the end of `values`.
+	const double position = static_cast<double>(Clamp01(percentile / 100.0f)) *
+		static_cast<double>(count - 1);
+	size_t upper = static_cast<size_t>(std::ceil(position));
+	if (upper >= count) {
+		upper = count - 1;
+	}
+	size_t lower = static_cast<size_t>(std::floor(position));
+	if (lower > upper) {
+		lower = upper;
+	}
 	std::nth_element(values->begin(), values->begin() + upper, values->end());
 	const float high = (*values)[upper];
 	if (lower == upper) {
@@ -27,7 +40,7 @@ float PercentileFromUnsorted(std::vector<float>* values, float percentile) {
 	// After nth_element at `upper`, every value before it is <= high, so the
 	// lower order statistic is the maximum of the prefix.
 	const float low = *std::max_element(values->begin(), values->begin() + upper);
-	return low + (high - low) * (position - static_cast<float>(lower));
+	return low + (high - low) * static_cast<float>(position - static_cast<double>(lower));
 }
 
 constexpr size_t kGammaLutSize = 4096;
@@ -49,8 +62,15 @@ void ComputeInferenceSize(int source_width, int source_height, int short_edge,
 		return;
 	}
 	const int alignment = std::max(patch, 1);
-	const float scale = static_cast<float>(std::max(short_edge, alignment)) /
+	const float requested_scale = static_cast<float>(std::max(short_edge, alignment)) /
 		static_cast<float>(std::min(source_width, source_height));
+	// Bound the long edge: the short edge alone does not limit the tensor, and
+	// an extreme aspect ratio otherwise scales the long edge without limit.
+	// Patch round-up below may still push the long edge up to (patch - 1)
+	// past this cap.
+	const float long_edge_scale = static_cast<float>(kMaxInferenceLongEdge) /
+		static_cast<float>(std::max(source_width, source_height));
+	const float scale = std::min(requested_scale, long_edge_scale);
 	*out_width = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_width * scale)), alignment);
 	*out_height = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_height * scale)), alignment);
 }
