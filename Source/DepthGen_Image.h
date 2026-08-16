@@ -21,6 +21,7 @@ inline constexpr float kImageNetMean[3] = {0.485f, 0.456f, 0.406f};
 inline constexpr float kImageNetDeviation[3] = {0.229f, 0.224f, 0.225f};
 inline constexpr int kZipDepthPatch = 32;
 inline constexpr int kDav2Patch = 14;
+inline constexpr int kMaxInferenceLongEdge = 4096;
 
 int RoundUpToPatchMultiple(int value, int patch = kZipDepthPatch) noexcept;
 void ComputeInferenceSize(int source_width, int source_height, int short_edge,

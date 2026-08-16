@@ -18,10 +18,20 @@ float Mix(float current, float previous, float weight) noexcept {
 
 float PercentileFromSorted(const std::vector<float>& sorted, float percentile) {
 	const size_t count = sorted.size();
-	const float position = Clamp01(percentile / 100.0f) * static_cast<float>(count - 1);
-	const size_t lower = static_cast<size_t>(std::floor(position));
+	if (count == 0) {
+		return 0.0f;
+	}
+	// Position in double for the same reason as PercentileFromUnsorted: past
+	// 2^24 elements, float cannot represent (count - 1) exactly, and `lower`
+	// is clamped in case the cast rounds up to count.
+	const double position = static_cast<double>(Clamp01(percentile / 100.0f)) *
+		static_cast<double>(count - 1);
+	size_t lower = static_cast<size_t>(std::floor(position));
+	if (lower >= count) {
+		lower = count - 1;
+	}
 	const size_t upper = lower + 1 < count ? lower + 1 : count - 1;
-	const float fraction = position - static_cast<float>(lower);
+	const float fraction = static_cast<float>(position - static_cast<double>(lower));
 	return sorted[lower] + (sorted[upper] - sorted[lower]) * fraction;
 }
 
@@ -288,9 +298,11 @@ std::shared_ptr<TemporalHistory> TemporalCacheGet(std::uint64_t id) {
 	std::lock_guard<std::mutex> lock(table.mutex);
 	auto found = table.histories.find(id);
 	if (found == table.histories.end()) {
-		auto history = std::make_shared<TemporalHistory>();
-		table.histories.emplace(id, history);
-		return history;
+		// Pure lookup: a miss means nothing is adopted for this id, not that a
+		// new history should be created. Ids now originate only from
+		// TemporalCacheCreate, so a stale or foreign id (e.g. restored from a
+		// persisted flat sequence handle) must not silently grow this table.
+		return nullptr;
 	}
 	return found->second;
 }

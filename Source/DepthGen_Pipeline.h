@@ -125,6 +125,9 @@ inline float AlphaValue(const PF_PixelFloat& pixel) {
 // Full-resolution alpha, used by level mapping and output alpha preservation.
 template <typename Pixel>
 std::vector<float> ReadWorldAlpha(const PF_EffectWorld* world) {
+	if (!world || !world->data || world->width <= 0 || world->height <= 0) {
+		return {};
+	}
 	const size_t pixel_count = static_cast<size_t>(world->width) * static_cast<size_t>(world->height);
 	std::vector<float> alpha(pixel_count);
 	for (A_long y = 0; y < world->height; ++y) {
@@ -144,7 +147,7 @@ template <typename Pixel>
 std::vector<float> ReadWorldToInferenceTensor(const PF_EffectWorld* world,
 	int inference_width, int inference_height, bool linear_to_srgb) {
 	std::vector<float> tensor;
-	if (!world || world->width <= 0 || world->height <= 0 ||
+	if (!world || !world->data || world->width <= 0 || world->height <= 0 ||
 		inference_width <= 0 || inference_height <= 0) {
 		return tensor;
 	}
@@ -218,7 +221,8 @@ void WriteDepthWorld(
 	const std::vector<float>& depth,
 	const std::vector<float>& source_alpha,
 	bool preserve_alpha) {
-	if (!output_world || !input_world || input_world->width <= 0 || input_world->height <= 0) {
+	if (!output_world || !input_world || !output_world->data || !input_world->data ||
+		input_world->width <= 0 || input_world->height <= 0) {
 		return;
 	}
 	// Fast path: the output covers the checked-out input 1:1 (the usual

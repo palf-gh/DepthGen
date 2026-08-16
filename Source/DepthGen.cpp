@@ -8,9 +8,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
+#include <exception>
 #include <memory>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -103,7 +107,7 @@ void WriteSequence(DepthGenSequenceData* sequence, bool flat, std::uint64_t cach
 	sequence->cache_id = cache_id;
 }
 
-PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data, std::uint64_t cache_id, bool mint_id) {
+PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data) {
 	PF_Handle handle = NewSequenceHandle(in_data, static_cast<A_long>(sizeof(DepthGenSequenceData)));
 	if (!handle) {
 		return PF_Err_OUT_OF_MEMORY;
@@ -113,11 +117,7 @@ PF_Err AllocateSequence(PF_InData* in_data, PF_OutData* out_data, std::uint64_t 
 		DisposeSequenceHandle(in_data, handle);
 		return PF_Err_OUT_OF_MEMORY;
 	}
-	if (mint_id || cache_id == 0) {
-		cache_id = depthgen::TemporalCacheCreate();
-	} else {
-		(void)depthgen::TemporalCacheGet(cache_id);
-	}
+	const std::uint64_t cache_id = depthgen::TemporalCacheCreate();
 	WriteSequence(sequence, false, cache_id);
 	UnlockSequenceHandle(in_data, handle);
 	if (out_data) {
@@ -130,7 +130,7 @@ PF_Err SequenceSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!in_data || !out_data) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
-	return AllocateSequence(in_data, out_data, 0, true);
+	return AllocateSequence(in_data, out_data);
 }
 
 PF_Err SequenceSetdown(PF_InData* in_data, PF_OutData* out_data) {
@@ -185,18 +185,25 @@ PF_Err SequenceResetup(PF_InData* in_data, PF_OutData* out_data) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
 	if (!in_data->sequence_data) {
-		return AllocateSequence(in_data, out_data, 0, true);
+		return AllocateSequence(in_data, out_data);
 	}
 	void* locked = LockSequenceHandle(in_data, in_data->sequence_data);
 	const auto* header = reinterpret_cast<const DepthGenSequenceData*>(locked);
 	const bool already_unflat = SequenceLooksValid(header) && (header->flags & kSequenceFlagFlat) == 0;
-	const std::uint64_t cache_id = SequenceCacheId(header);
 	UnlockSequenceHandle(in_data, in_data->sequence_data);
 	if (already_unflat) {
 		out_data->sequence_data = in_data->sequence_data;
 		return PF_Err_NONE;
 	}
-	return AllocateSequence(in_data, out_data, cache_id, false);
+	// The flat handle's cache_id is not adopted here: After Effects persists it
+	// into the project file and copies it on duplicate, so a restored id can
+	// collide with a live one or be shared by two instances. Mint a fresh id
+	// instead, and only free the flat handle once the new one exists.
+	const PF_Err err = AllocateSequence(in_data, out_data);
+	if (err == PF_Err_NONE) {
+		DisposeSequenceHandle(in_data, in_data->sequence_data);
+	}
+	return err;
 }
 
 PF_Handle SequenceHandleFromRender(PF_InData* in_data) {
@@ -213,6 +220,26 @@ std::uint64_t CacheIdFromRender(PF_InData* in_data) {
 	if (!in_data) {
 		return 0;
 	}
+	// PF_OutFlag2_SUPPORTS_THREADED_RENDERING is set, so the const-sequence-data
+	// suite is the sanctioned way to read sequence data at render time; try it
+	// first and fall back to the direct handle read below only when the suite
+	// is unavailable or does not yield a usable cache id.
+	if (in_data->pica_basicP) {
+		PF_EffectSequenceDataSuite1* suite = nullptr;
+		if (AEFX_AcquireSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
+			nullptr, reinterpret_cast<void**>(&suite)) == PF_Err_NONE && suite) {
+			PF_ConstHandle const_handle = nullptr;
+			const PF_Err err = suite->PF_GetConstSequenceData(in_data->effect_ref, &const_handle);
+			(void)AEFX_ReleaseSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
+				nullptr);
+			if (err == PF_Err_NONE && const_handle) {
+				const std::uint64_t cache_id = SequenceCacheId(*const_handle);
+				if (cache_id != 0) {
+					return cache_id;
+				}
+			}
+		}
+	}
 	if (in_data->sequence_data) {
 		void* locked = LockSequenceHandle(in_data, in_data->sequence_data);
 		const std::uint64_t cache_id = SequenceCacheId(locked);
@@ -221,22 +248,7 @@ std::uint64_t CacheIdFromRender(PF_InData* in_data) {
 			return cache_id;
 		}
 	}
-	if (!in_data->pica_basicP) {
-		return 0;
-	}
-	PF_EffectSequenceDataSuite1* suite = nullptr;
-	if (AEFX_AcquireSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
-		nullptr, reinterpret_cast<void**>(&suite)) != PF_Err_NONE || !suite) {
-		return 0;
-	}
-	PF_ConstHandle const_handle = nullptr;
-	const PF_Err err = suite->PF_GetConstSequenceData(in_data->effect_ref, &const_handle);
-	(void)AEFX_ReleaseSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
-		nullptr);
-	if (err != PF_Err_NONE || !const_handle) {
-		return 0;
-	}
-	return SequenceCacheId(*const_handle);
+	return 0;
 }
 
 std::shared_ptr<depthgen::TemporalHistory> HistoryFromSequence(PF_InData* in_data) {
@@ -296,6 +308,19 @@ void DisposePreRenderData(void* data) {
 	delete reinterpret_cast<DepthGenPreRenderData*>(data);
 }
 
+void WriteReturnMessage(PF_OutData* out_data, const char* format, ...) {
+	if (!out_data || !format) {
+		return;
+	}
+	va_list args;
+	va_start(args, format);
+	const int written = std::vsnprintf(out_data->return_msg, sizeof(out_data->return_msg), format, args);
+	va_end(args);
+	if (written < 0) {
+		out_data->return_msg[0] = '\0';
+	}
+}
+
 PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!in_data || !out_data) return PF_Err_BAD_CALLBACK_PARAM;
 	out_data->my_version = DEPTHGEN_VERSION_PACKED;
@@ -308,10 +333,18 @@ PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!out_data->global_data) return PF_Err_OUT_OF_MEMORY;
 	DepthGenGlobalData* data = reinterpret_cast<DepthGenGlobalData*>(
 		suites.HandleSuite1()->host_lock_handle(out_data->global_data));
-	if (!data) return PF_Err_OUT_OF_MEMORY;
+	if (!data) {
+		(void)suites.HandleSuite1()->host_dispose_handle(out_data->global_data);
+		out_data->global_data = nullptr;
+		return PF_Err_OUT_OF_MEMORY;
+	}
 	data->plugin_id = 0;
 	const PF_Err err = suites.UtilitySuite5()->AEGP_RegisterWithAEGP(nullptr, DEPTHGEN_NAME, &data->plugin_id);
 	suites.HandleSuite1()->host_unlock_handle(out_data->global_data);
+	if (err) {
+		(void)suites.HandleSuite1()->host_dispose_handle(out_data->global_data);
+		out_data->global_data = nullptr;
+	}
 	return err;
 }
 
@@ -349,9 +382,8 @@ PF_Err ParamsSetup(PF_InData* in_data, PF_OutData* out_data) {
 	AEFX_CLR_STRUCT(def);
 	PF_ADD_CHECKBOX(GetString(DepthGenString::Invert, in_data), "On", FALSE, 0, DEPTHGEN_INVERT);
 	AEFX_CLR_STRUCT(def);
-	def.flags = PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;
 	PF_ADD_FLOAT_SLIDERX(GetString(DepthGenString::TemporalStability, in_data), 0, 100, 0, 100, 0, 1,
-		PF_ValueDisplayFlag_PERCENT, 0, DEPTHGEN_TEMPORAL_STABILITY);
+		PF_ValueDisplayFlag_PERCENT, PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS, DEPTHGEN_TEMPORAL_STABILITY);
 	AEFX_CLR_STRUCT(def);
 	def.ui_flags = PF_PUI_INVISIBLE;
 	def.flags = PF_ParamFlag_CANNOT_TIME_VARY | PF_ParamFlag_USE_VALUE_FOR_OLD_PROJECTS;
@@ -426,18 +458,40 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
 	err = extra->cb->checkout_layer_pixels(in_data->effect_ref, DEPTHGEN_INPUT, &input);
 	if (!err) err = extra->cb->checkout_output(in_data->effect_ref, &output);
 	if (!err && input && output) {
-		AEFX_SuiteScoper<PF_WorldSuite2> world_suite(in_data, kPFWorldSuite, kPFWorldSuiteVersion2, out_data);
-		PF_PixelFormat format = PF_PixelFormat_INVALID;
-		err = world_suite->PF_GetPixelFormat(input, &format);
-		if (!err) {
-			const auto history = HistoryFromSequence(in_data);
-			err = DepthGen_RenderWorld(in_data, out_data, format, input, output,
-				reinterpret_cast<DepthGenPreRenderData*>(extra->input->pre_render_data)->settings,
-				history.get(), in_data->current_time, in_data->time_step);
+		try {
+			AEFX_SuiteScoper<PF_WorldSuite2> world_suite(in_data, kPFWorldSuite, kPFWorldSuiteVersion2, out_data);
+			PF_PixelFormat format = PF_PixelFormat_INVALID;
+			err = world_suite->PF_GetPixelFormat(input, &format);
+			if (!err) {
+				const auto history = HistoryFromSequence(in_data);
+				err = DepthGen_RenderWorld(in_data, out_data, format, input, output,
+					reinterpret_cast<DepthGenPreRenderData*>(extra->input->pre_render_data)->settings,
+					history.get(), in_data->current_time, in_data->time_step);
+			}
+		} catch (const A_long thrown) {
+			err = thrown;
+		} catch (const std::bad_alloc&) {
+			err = PF_Err_OUT_OF_MEMORY;
+		} catch (const std::exception&) {
+			err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+		} catch (...) {
+			err = PF_Err_INTERNAL_STRUCT_DAMAGED;
 		}
 	}
 	if (input) (void)extra->cb->checkin_layer_pixels(in_data->effect_ref, DEPTHGEN_INPUT);
 	return err;
+}
+
+// Polls the host for a user-requested cancellation. DepthGen_RenderWorld
+// tolerates a null in_data at other call sites, so this does too: no in_data
+// means no host to poll, and PF_Err_NONE lets the caller carry on. Otherwise
+// forwards PF_ABORT's result verbatim (non-zero, typically
+// PF_Interrupt_CANCEL, when the user has cancelled).
+PF_Err CheckAbort(PF_InData* in_data) {
+	if (!in_data) {
+		return PF_Err_NONE;
+	}
+	return PF_ABORT(in_data);
 }
 
 } // namespace
@@ -452,7 +506,8 @@ PF_Err DepthGen_RenderWorld(
 	depthgen::TemporalHistory* history,
 	A_long time,
 	A_long time_step) {
-	if (!input_world || !output_world || input_world->width <= 0 || input_world->height <= 0 ||
+	if (!input_world || !output_world || !input_world->data || !output_world->data ||
+		input_world->width <= 0 || input_world->height <= 0 ||
 		output_world->width <= 0 || output_world->height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
@@ -476,6 +531,9 @@ PF_Err DepthGen_RenderWorld(
 		&inference_width, &inference_height, patch);
 	if (inference_width <= 0 || inference_height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
+	}
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
 	}
 	std::vector<float> alpha;
 	std::vector<float> tensor;
@@ -508,10 +566,13 @@ PF_Err DepthGen_RenderWorld(
 	std::string inference_error;
 	const depthgen::DepthModel inference_model = settings.model == DEPTHGEN_MODEL_DAV2_SMALL
 		? depthgen::DepthModel::DepthAnythingV2Small : depthgen::DepthModel::ZipDepth;
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
+	}
 	if (!depthgen::InferDepth(tensor, inference_width, inference_height, inference_model,
 		&result, &provider, &inference_error)) {
 		if (out_data && !inference_error.empty()) {
-			PF_SPRINTF(out_data->return_msg, "DepthGen: %s", inference_error.c_str());
+			WriteReturnMessage(out_data, "DepthGen: %s", inference_error.c_str());
 		}
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
@@ -545,6 +606,9 @@ PF_Err DepthGen_RenderWorld(
 	if (history) {
 		history->Store(static_cast<std::int32_t>(time), layout,
 			depthgen::MeasureUnitRange(full_depth.values, alpha, settings.alpha_threshold, levels));
+	}
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
 	}
 	switch (pixel_format) {
 	case PF_PixelFormat_ARGB32:
@@ -601,37 +665,47 @@ extern "C" DllExport
 PF_Err EffectMain(
 	PF_Cmd cmd, PF_InData* in_data, PF_OutData* out_data, PF_ParamDef* params[],
 	PF_LayerDef* output, void* extra) {
-	switch (cmd) {
-	case PF_Cmd_ABOUT:
-		PF_SPRINTF(out_data->return_msg, "%s v%d.%d\\r%s", DEPTHGEN_NAME,
-			DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_DESCRIPTION);
-		return PF_Err_NONE;
-	case PF_Cmd_GLOBAL_SETUP: return GlobalSetup(in_data, out_data);
-	case PF_Cmd_GLOBAL_SETDOWN: return GlobalSetdown(in_data);
-	case PF_Cmd_PARAMS_SETUP: return ParamsSetup(in_data, out_data);
-	case PF_Cmd_SEQUENCE_SETUP: {
-		const PF_Err err = SequenceSetup(in_data, out_data);
-		return err ? err : DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	}
-	case PF_Cmd_SEQUENCE_SETDOWN: return SequenceSetdown(in_data, out_data);
-	case PF_Cmd_SEQUENCE_FLATTEN: return SequenceFlatten(in_data, out_data);
-	case PF_Cmd_SEQUENCE_RESETUP: {
-		const PF_Err err = SequenceResetup(in_data, out_data);
-		return err ? err : DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	}
-	case PF_Cmd_GET_FLATTENED_SEQUENCE_DATA: return GetFlattenedSequenceData(in_data, out_data);
-	case PF_Cmd_SMART_PRE_RENDER: return PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra));
-	case PF_Cmd_SMART_RENDER: return SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra));
-	case PF_Cmd_USER_CHANGED_PARAM:
-		if (extra) {
-			const A_long index = reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index;
-			if (index == ParamIndexFromID(DEPTHGEN_QUALITY) || index == ParamIndexFromID(DEPTHGEN_MODEL)) {
-				return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+	PF_Err err = PF_Err_NONE;
+	try {
+		switch (cmd) {
+		case PF_Cmd_ABOUT:
+			WriteReturnMessage(out_data, "%s v%d.%d.%d\r%s", DEPTHGEN_NAME,
+				DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_VERSION_BUG,
+				DEPTHGEN_DESCRIPTION);
+			break;
+		case PF_Cmd_GLOBAL_SETUP: err = GlobalSetup(in_data, out_data); break;
+		case PF_Cmd_GLOBAL_SETDOWN: err = GlobalSetdown(in_data); break;
+		case PF_Cmd_PARAMS_SETUP: err = ParamsSetup(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_SETUP: err = SequenceSetup(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_SETDOWN: err = SequenceSetdown(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_FLATTEN: err = SequenceFlatten(in_data, out_data); break;
+		case PF_Cmd_SEQUENCE_RESETUP: err = SequenceResetup(in_data, out_data); break;
+		case PF_Cmd_GET_FLATTENED_SEQUENCE_DATA: err = GetFlattenedSequenceData(in_data, out_data); break;
+		case PF_Cmd_SMART_PRE_RENDER: err = PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra)); break;
+		case PF_Cmd_SMART_RENDER: err = SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra)); break;
+		case PF_Cmd_USER_CHANGED_PARAM:
+			if (extra) {
+				const A_long index = reinterpret_cast<PF_UserChangedParamExtra*>(extra)->param_index;
+				if (index == ParamIndexFromID(DEPTHGEN_QUALITY) || index == ParamIndexFromID(DEPTHGEN_MODEL)) {
+					err = DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+					break;
+				}
 			}
+			break;
+		case PF_Cmd_UPDATE_PARAMS_UI:
+			err = DepthGen_UpdateParamsUI(in_data, out_data, params, output);
+			break;
+		default: break;
 		}
-		return PF_Err_NONE;
-	case PF_Cmd_UPDATE_PARAMS_UI:
-		return DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	default: return PF_Err_NONE;
+	} catch (const A_long thrown) {
+		// PF_Err is A_long: MissingSuiteError and A_THROW both arrive here.
+		err = thrown;
+	} catch (const std::bad_alloc&) {
+		err = PF_Err_OUT_OF_MEMORY;
+	} catch (const std::exception&) {
+		err = PF_Err_INTERNAL_STRUCT_DAMAGED;
+	} catch (...) {
+		err = PF_Err_INTERNAL_STRUCT_DAMAGED;
 	}
+	return err;
 }
