@@ -98,10 +98,10 @@ void RunSuite(A_long width, A_long height, int inference_width, int inference_he
 int main() {
 	int inference_width = 0;
 	int inference_height = 0;
-	depthgen::ComputeInferenceSize(1920, 1080, 518, &inference_width, &inference_height);
+	depthgen::ComputeInferenceSize(1920, 1080, 1080, &inference_width, &inference_height);
 	RunSuite<PF_Pixel>(1920, 1080, inference_width, inference_height);
 	RunSuite<PF_PixelFloat>(1920, 1080, inference_width, inference_height);
-	depthgen::ComputeInferenceSize(3840, 2160, 518, &inference_width, &inference_height);
+	depthgen::ComputeInferenceSize(3840, 2160, 2160, &inference_width, &inference_height);
 	RunSuite<PF_Pixel>(3840, 2160, inference_width, inference_height);
 	return 0;
 }

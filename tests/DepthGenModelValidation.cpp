@@ -18,11 +18,11 @@ void SetModelPath(const std::string& path) {
 }
 
 bool ExpectFailure(const char* expected) {
-	std::vector<float> input(14U * 14U * 3U, 0.0f);
+	std::vector<float> input(32U * 32U * 3U, 0.5f);
 	depthgen::InferenceResult result;
 	depthgen::InferenceProvider provider = depthgen::InferenceProvider::Unavailable;
 	std::string error;
-	if (depthgen::InferDepthAnythingSmall(input, 14, 14, &result, &provider, &error)) {
+	if (depthgen::InferZipDepth(input, 32, 32, &result, &provider, &error)) {
 		std::cerr << "Expected model validation failure.\n";
 		return false;
 	}
@@ -44,7 +44,7 @@ int main() {
 	if (!ExpectFailure("missing")) return 1;
 	{
 		std::ofstream stream(invalid, std::ios::binary);
-		stream << "not a Depth Anything model";
+		stream << "not a ZipDepth model";
 	}
 	if (!ExpectFailure("SHA-256 mismatch")) {
 		std::filesystem::remove(invalid, ignored);

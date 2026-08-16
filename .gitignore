@@ -11,18 +11,9 @@ compile_commands.json
 /Resources/Models/*.data
 /Resources/Models/*.sha256
 
-# Keep Release plug-in deliverables versioned (BitonicPixelSorterForAE layout),
-# but ignore non-release outputs. Model weights and ONNX Runtime binaries remain
-# gitignored even when they sit inside a Release tree.
-/dist/Win/Debug/
-/dist/Win/RelWithDebInfo/
-/dist/Win/MinSizeRel/
-/dist/Mac/Debug/
-/dist/Mac/RelWithDebInfo/
-/dist/Mac/MinSizeRel/
-/dist/**/*.onnx
-/dist/**/*.dll
-/dist/**/*.dylib
+# Local CMake outputs. Embedded models make Release plug-ins exceed GitHub's
+# 100 MB blob limit, so binaries are not tracked; ship them via GitHub Releases.
+/dist/
 /package/
 
 # macOS Finder and Windows Explorer metadata

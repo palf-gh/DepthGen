@@ -16,17 +16,20 @@ struct FloatImage {
 	}
 };
 
-// ImageNet normalisation applied to Depth Anything inputs.
+inline constexpr float kByteToUnit = 1.0f / 255.0f;
 inline constexpr float kImageNetMean[3] = {0.485f, 0.456f, 0.406f};
 inline constexpr float kImageNetDeviation[3] = {0.229f, 0.224f, 0.225f};
+inline constexpr int kZipDepthPatch = 32;
+inline constexpr int kDav2Patch = 14;
 
-int RoundUpToPatchMultiple(int value, int patch = 14) noexcept;
+int RoundUpToPatchMultiple(int value, int patch = kZipDepthPatch) noexcept;
 void ComputeInferenceSize(int source_width, int source_height, int short_edge,
-	int* out_width, int* out_height) noexcept;
+	int* out_width, int* out_height, int patch = kZipDepthPatch) noexcept;
 int ScaleShortEdgeToRender(int full_width, int full_height, int render_width,
-	int render_height, int full_res_short_edge) noexcept;
+	int render_height, int full_res_short_edge, int patch = kZipDepthPatch) noexcept;
 FloatImage ResizeBilinearAligned(const FloatImage& input, int out_width, int out_height);
 float LinearToSrgb(float value) noexcept;
+void ApplyImageNetToPlanarRgb(std::vector<float>* nchw_rgb, int width, int height);
 
 // Linear-interpolated lookup into a uniform [0,1] table.
 inline float SampleLut(const float* lut, size_t lut_size, float value) noexcept {
@@ -41,7 +44,26 @@ inline float SampleLut(const float* lut, size_t lut_size, float value) noexcept 
 	return lut[lower] + (lut[upper] - lut[lower]) * fraction;
 }
 
-void ImageNetNormaliseInterleavedRgb(std::vector<float>* rgb);
+struct DepthLevels {
+	float low = 0.0f;
+	float high = 1.0f;
+	bool valid = false;
+};
+
+DepthLevels ComputeDepthLevels(
+	const std::vector<float>& depth,
+	const std::vector<float>& alpha,
+	float alpha_threshold,
+	bool use_alpha_for_levels,
+	float far_percentile,
+	float near_percentile);
+
+void ApplyDepthLevels(
+	std::vector<float>* depth,
+	const DepthLevels& levels,
+	float contrast,
+	bool invert);
+
 void MapRelativeDepthToUnit(
 	std::vector<float>* depth,
 	const std::vector<float>& alpha,

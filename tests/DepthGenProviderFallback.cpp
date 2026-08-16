@@ -14,11 +14,11 @@ int main(int argc, char* argv[]) {
 	setenv(execution_failure ? "DEPTHGEN_TEST_FORCE_ACCELERATOR_EXECUTION_FAILURE" :
 		"DEPTHGEN_TEST_FORCE_ACCELERATOR_FAILURE", "1", 1);
 #endif
-	std::vector<float> input(392U * 392U * 3U, 0.0f);
+	std::vector<float> input(384U * 384U * 3U, 0.5f);
 	depthgen::InferenceResult result;
 	depthgen::InferenceProvider provider = depthgen::InferenceProvider::Unavailable;
 	std::string error;
-	if (!depthgen::InferDepthAnythingSmall(input, 392, 392, &result, &provider, &error,
+	if (!depthgen::InferZipDepth(input, 384, 384, &result, &provider, &error,
 		depthgen::InferencePreference::Accelerated)) {
 		std::cerr << error << '\n';
 		return 1;

@@ -11,8 +11,11 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
 endif()
 
 option(DEPTHGEN_ENABLE_ONNX_RUNTIME "Compile inference support when DEPTHGEN_ORT_ROOT is supplied" ON)
+option(DEPTHGEN_ENABLE_CUDA "Use CUDA when the supplied Windows ORT build exports it" ON)
 option(DEPTHGEN_ENABLE_DIRECTML "Use DirectML when the supplied Windows ORT build exports it" ON)
 option(DEPTHGEN_ENABLE_COREML "Use Core ML when the supplied macOS ORT build exports it" ON)
+option(DEPTHGEN_COREML_MLPROGRAM "Compile Core ML MLProgram support and fall back at runtime when unavailable" ON)
+option(DEPTHGEN_COREML_CPU_AND_GPU "Restrict Core ML MLProgram to CPU+GPU units instead of allowing ANE" OFF)
 option(DEPTHGEN_BUILD_TESTS "Build deterministic image-pipeline tests" ON)
 option(DEPTHGEN_PACKAGE_RELEASE "Assemble a distribution-ready package; requires verified model and ORT" OFF)
 set(DEPTHGEN_ORT_ROOT "" CACHE PATH "Pinned ONNX Runtime SDK root")
@@ -31,6 +34,11 @@ endif()
 
 include(cmake/DepthGenAssets.cmake)
 depthgen_add_model_target("${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models")
+set(DEPTHGEN_ZIPDEPTH_MODEL_PATH
+  "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models/${DEPTHGEN_ZIPDEPTH_MODEL_FILENAME}")
+set(DEPTHGEN_DAV2_MODEL_PATH
+  "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models/${DEPTHGEN_DAV2_MODEL_FILENAME}")
+set(DEPTHGEN_MODEL_PATH "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}")
 
 set(DEPTHGEN_SOURCES
   Source/DepthGen.h
@@ -40,6 +48,10 @@ set(DEPTHGEN_SOURCES
   Source/DepthGen_Image.h
   Source/DepthGen_Image.cpp
   Source/DepthGen_Pipeline.h
+  Source/DepthGen_Temporal.h
+  Source/DepthGen_Temporal.cpp
+  Source/DepthGen_EmbeddedModel.h
+  Source/DepthGen_EmbeddedModel.cpp
   Source/DepthGen_ModelIntegrity.h
   Source/DepthGen_ModelIntegrity.cpp
   Source/DepthGen_Inference.h
@@ -79,15 +91,58 @@ if(DEPTHGEN_ENABLE_ONNX_RUNTIME AND DEPTHGEN_ORT_ROOT)
     set(DEPTHGEN_HAS_ORT TRUE)
     target_include_directories(DepthGen PRIVATE "${DEPTHGEN_ORT_INCLUDE_DIR}")
     target_link_libraries(DepthGen PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
-    target_compile_definitions(DepthGen PRIVATE DEPTHGEN_HAS_ORT=1)
-    if(WIN32 AND DEPTHGEN_ENABLE_DIRECTML AND
-       (EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/dml_provider_factory.h" OR
-        EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/onnxruntime/core/providers/dml/dml_provider_factory.h"))
-      list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_ORT_DML=1)
-    elseif(APPLE AND DEPTHGEN_ENABLE_COREML AND
-       (EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/coreml_provider_factory.h" OR
-        EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/onnxruntime/core/providers/coreml/coreml_provider_factory.h"))
-      list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_ORT_COREML=1)
+    target_compile_definitions(DepthGen PRIVATE DEPTHGEN_HAS_ORT=1 DEPTHGEN_EMBEDDED_MODEL=1)
+    if(TARGET depthgen_build_model)
+      add_dependencies(DepthGen depthgen_build_model)
+    else()
+      if(NOT EXISTS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}" OR NOT EXISTS "${DEPTHGEN_DAV2_MODEL_PATH}")
+        message(FATAL_ERROR "DepthGen requires ${DEPTHGEN_ZIPDEPTH_MODEL_PATH} and "
+          "${DEPTHGEN_DAV2_MODEL_PATH}; install Python 3 and build depthgen_build_model.")
+      endif()
+      file(SHA256 "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}" DEPTHGEN_EXISTING_ZIPDEPTH_SHA256)
+      file(SHA256 "${DEPTHGEN_DAV2_MODEL_PATH}" DEPTHGEN_EXISTING_DAV2_SHA256)
+      if(NOT DEPTHGEN_EXISTING_ZIPDEPTH_SHA256 STREQUAL DEPTHGEN_ZIPDEPTH_OUTPUT_SHA256)
+        message(FATAL_ERROR "The existing ZipDepth ONNX does not match the pinned SHA-256.")
+      endif()
+      if(NOT DEPTHGEN_EXISTING_DAV2_SHA256 STREQUAL DEPTHGEN_DAV2_OUTPUT_SHA256)
+        message(FATAL_ERROR "The existing Depth Anything V2 Small ONNX does not match the pinned SHA-256.")
+      endif()
+    endif()
+    if(WIN32)
+      if(DEPTHGEN_ENABLE_CUDA AND
+         (EXISTS "${DEPTHGEN_ORT_ROOT}/lib/onnxruntime_providers_cuda.dll" OR
+          EXISTS "${DEPTHGEN_ORT_ROOT}/runtimes/win-x64/native/onnxruntime_providers_cuda.dll"))
+        list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_ORT_CUDA=1)
+      endif()
+      if(DEPTHGEN_ENABLE_DIRECTML AND
+         (EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/dml_provider_factory.h" OR
+          EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/onnxruntime/core/providers/dml/dml_provider_factory.h" OR
+          EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/core/providers/dml/dml_provider_factory.h"))
+        list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_ORT_DML=1)
+      endif()
+    elseif(APPLE AND DEPTHGEN_ENABLE_COREML)
+      set(DEPTHGEN_COREML_PROVIDER_HEADER "")
+      if(EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/coreml_provider_factory.h")
+        set(DEPTHGEN_COREML_PROVIDER_HEADER "${DEPTHGEN_ORT_INCLUDE_DIR}/coreml_provider_factory.h")
+      elseif(EXISTS "${DEPTHGEN_ORT_INCLUDE_DIR}/onnxruntime/core/providers/coreml/coreml_provider_factory.h")
+        set(DEPTHGEN_COREML_PROVIDER_HEADER
+          "${DEPTHGEN_ORT_INCLUDE_DIR}/onnxruntime/core/providers/coreml/coreml_provider_factory.h")
+      endif()
+      if(DEPTHGEN_COREML_PROVIDER_HEADER)
+        list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_ORT_COREML=1)
+        file(READ "${DEPTHGEN_COREML_PROVIDER_HEADER}" DEPTHGEN_COREML_PROVIDER_HEADER_TEXT)
+        if(DEPTHGEN_COREML_MLPROGRAM AND
+           DEPTHGEN_COREML_PROVIDER_HEADER_TEXT MATCHES "COREML_FLAG_CREATE_MLPROGRAM")
+          list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_COREML_MLPROGRAM=1)
+        elseif(DEPTHGEN_COREML_MLPROGRAM)
+          message(STATUS "DepthGen: this ONNX Runtime has no Core ML MLProgram flag; "
+            "NeuralNetwork will be used with CPU fallback.")
+        endif()
+        if(DEPTHGEN_COREML_CPU_AND_GPU AND
+           DEPTHGEN_COREML_PROVIDER_HEADER_TEXT MATCHES "COREML_FLAG_USE_CPU_AND_GPU")
+          list(APPEND DEPTHGEN_ORT_PROVIDER_DEFINITIONS DEPTHGEN_COREML_CPU_AND_GPU=1)
+        endif()
+      endif()
     endif()
     if(DEPTHGEN_ORT_PROVIDER_DEFINITIONS)
       target_compile_definitions(DepthGen PRIVATE ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
@@ -104,14 +159,21 @@ if(DEPTHGEN_HAS_ORT)
     "${DEPTHGEN_ORT_ROOT}/lib/*.dll"
     "${DEPTHGEN_ORT_ROOT}/lib/*.dylib"
     "${DEPTHGEN_ORT_ROOT}/runtimes/win-x64/native/*.dll")
+  list(FILTER DEPTHGEN_ORT_RUNTIME_FILES EXCLUDE REGEX "onnxruntime_providers_tensorrt.*\\.dll$")
   if(WIN32)
     add_custom_command(TARGET DepthGen POST_BUILD
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_RUNTIME_DESTINATION=$<TARGET_FILE_DIR:DepthGen>
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "$<TARGET_FILE_DIR:DepthGen>"
       COMMENT "Copying ONNX Runtime beside DepthGen.aex")
   elseif(APPLE)
     add_custom_command(TARGET DepthGen POST_BUILD
       COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Frameworks"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_RUNTIME_DESTINATION=$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Frameworks
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Frameworks"
       COMMENT "Embedding ONNX Runtime in DepthGen.plugin")
@@ -119,21 +181,29 @@ if(DEPTHGEN_HAS_ORT)
 endif()
 
 if(WIN32)
+  if(DEPTHGEN_HAS_ORT)
+    set(DEPTHGEN_ZIPDEPTH_MODEL_PATH_NATIVE "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}")
+    set(DEPTHGEN_DAV2_MODEL_PATH_NATIVE "${DEPTHGEN_DAV2_MODEL_PATH}")
+    set(DEPTHGEN_MODEL_RC "${CMAKE_CURRENT_BINARY_DIR}/DepthGenModel.rc")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DepthGenModel.rc.in"
+      "${DEPTHGEN_MODEL_RC}" @ONLY)
+    set_source_files_properties("${DEPTHGEN_MODEL_RC}" PROPERTIES
+      OBJECT_DEPENDS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH};${DEPTHGEN_DAV2_MODEL_PATH}")
+    target_sources(DepthGen PRIVATE "${DEPTHGEN_MODEL_RC}")
+  endif()
   add_custom_command(TARGET DepthGen POST_BUILD
     COMMAND "${CMAKE_COMMAND}"
       -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
       -DDEPTHGEN_MODELS_DESTINATION=$<TARGET_FILE_DIR:DepthGen>/Resources/Models
-      -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
-    COMMENT "Copying DepthGen model assets beside DepthGen.aex")
+    COMMENT "Copying the DepthGen model manifest beside DepthGen.aex")
 elseif(APPLE)
   add_custom_command(TARGET DepthGen POST_BUILD
     COMMAND "${CMAKE_COMMAND}"
       -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
       -DDEPTHGEN_MODELS_DESTINATION=$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/Models
-      -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
       -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
-    COMMENT "Copying DepthGen model assets into DepthGen.plugin")
+    COMMENT "Copying the DepthGen model manifest into DepthGen.plugin")
 endif()
 
 # Debug builds use a distinct AE identity and filename so they can sit beside Release.
@@ -228,6 +298,13 @@ elseif(APPLE)
   target_link_options(DepthGen PRIVATE
     "-Wl,-sectcreate,__TEXT,__plgin,$<IF:$<CONFIG:Debug>,${PIPL_RSRC_DEBUG},${PIPL_RSRC_RELEASE}>"
     "-Wl,-rpath,@loader_path/../Frameworks")
+  if(DEPTHGEN_HAS_ORT)
+    target_link_options(DepthGen PRIVATE
+      "-Wl,-sectcreate,__DATA_CONST,__zipdepth,${DEPTHGEN_ZIPDEPTH_MODEL_PATH}"
+      "-Wl,-sectcreate,__DATA_CONST,__dav2,${DEPTHGEN_DAV2_MODEL_PATH}")
+    set_property(TARGET DepthGen APPEND PROPERTY LINK_DEPENDS
+      "${DEPTHGEN_ZIPDEPTH_MODEL_PATH};${DEPTHGEN_DAV2_MODEL_PATH}")
+  endif()
   find_library(COCOA_LIBRARY Cocoa REQUIRED)
   target_link_libraries(DepthGen PRIVATE "${COCOA_LIBRARY}")
   add_custom_command(TARGET DepthGen POST_BUILD
@@ -238,6 +315,9 @@ elseif(APPLE)
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       "$<IF:$<CONFIG:Debug>,${PIPL_RSRC_DEBUG},${PIPL_RSRC_RELEASE}>"
       "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Resources/DepthGenPiPL.rsrc"
+    COMMAND "${CMAKE_COMMAND}"
+      -DDEPTHGEN_BUNDLE=$<TARGET_BUNDLE_DIR:DepthGen>
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sign_macos_runtime.cmake"
     COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:DepthGen>")
   set(DEPTHGEN_DIST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dist/Mac/$<CONFIG>")
 else()
@@ -258,9 +338,14 @@ if(DEPTHGEN_PACKAGE_RELEASE)
   if(NOT DEPTHGEN_HAS_ORT)
     message(FATAL_ERROR "DEPTHGEN_PACKAGE_RELEASE requires a pinned DEPTHGEN_ORT_ROOT.")
   endif()
-  if(NOT TARGET depthgen_build_model)
-    message(FATAL_ERROR "DEPTHGEN_PACKAGE_RELEASE requires Python 3 with the onnx package "
-      "so depthgen_build_model can regenerate the verified accelerated model.")
+  if(NOT TARGET depthgen_build_model AND
+     (NOT EXISTS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}" OR NOT EXISTS "${DEPTHGEN_DAV2_MODEL_PATH}"))
+    message(FATAL_ERROR "DEPTHGEN_PACKAGE_RELEASE requires verified ZipDepth and "
+      "Depth Anything V2 Small ONNX files, or Python 3 so depthgen_build_model can regenerate them.")
+  endif()
+  set(DEPTHGEN_PACKAGE_MODEL_DEPENDENCY)
+  if(TARGET depthgen_build_model)
+    list(APPEND DEPTHGEN_PACKAGE_MODEL_DEPENDENCY depthgen_build_model)
   endif()
   set(DEPTHGEN_PACKAGE_ROOT "${CMAKE_CURRENT_BINARY_DIR}/package/$<CONFIG>")
 	set(DEPTHGEN_ORT_NOTICE_FILES)
@@ -277,7 +362,7 @@ if(DEPTHGEN_PACKAGE_RELEASE)
   endif()
   if(WIN32)
     add_custom_target(depthgen_package
-      DEPENDS DepthGen depthgen_build_model
+      DEPENDS DepthGen ${DEPTHGEN_PACKAGE_MODEL_DEPENDENCY}
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${DEPTHGEN_PACKAGE_PLATFORM_DIR}"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
@@ -294,13 +379,14 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_ROOT}/docs"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:DepthGen>"
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.aex"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_RUNTIME_DESTINATION=${DEPTHGEN_PACKAGE_PLATFORM_DIR}
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
         -DDEPTHGEN_MODELS_DESTINATION=${DEPTHGEN_PACKAGE_MODEL_DIR}
-        -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
-        -DDEPTHGEN_MODEL_REQUIRED=ON
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_PACKAGE_ROOT=${DEPTHGEN_PACKAGE_ROOT}
@@ -309,7 +395,7 @@ if(DEPTHGEN_PACKAGE_RELEASE)
       COMMENT "Staging and archiving DepthGen Windows release package")
   else()
     add_custom_target(depthgen_package
-      DEPENDS DepthGen depthgen_build_model
+      DEPENDS DepthGen ${DEPTHGEN_PACKAGE_MODEL_DEPENDENCY}
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${DEPTHGEN_PACKAGE_PLATFORM_DIR}"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
@@ -328,14 +414,18 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin"
       COMMAND "${CMAKE_COMMAND}" -E make_directory
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_RUNTIME_DESTINATION=${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
       COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
         "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin/Contents/Frameworks"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
         -DDEPTHGEN_MODELS_DESTINATION=${DEPTHGEN_PACKAGE_MODEL_DIR}
-        -DDEPTHGEN_MODEL_FILENAME=${DEPTHGEN_MODEL_FILENAME}
-        -DDEPTHGEN_MODEL_REQUIRED=ON
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
+      COMMAND "${CMAKE_COMMAND}"
+        -DDEPTHGEN_BUNDLE=${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/sign_macos_runtime.cmake"
       COMMAND codesign --force --sign - "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_BUNDLE=${DEPTHGEN_PACKAGE_PLATFORM_DIR}/DepthGen.plugin
@@ -350,13 +440,17 @@ endif()
 
 if(DEPTHGEN_BUILD_TESTS)
   enable_testing()
-  add_executable(depthgen_image_tests tests/DepthGenImageTests.cpp Source/DepthGen_Image.cpp)
+  add_executable(depthgen_image_tests
+    tests/DepthGenImageTests.cpp
+    Source/DepthGen_Image.cpp
+    Source/DepthGen_Temporal.cpp)
   target_include_directories(depthgen_image_tests PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/Source"
     "${AESDK_ROOT}/Headers"
     "${AESDK_ROOT}/Headers/SP"
     "${AESDK_ROOT}/Util")
   target_compile_definitions(depthgen_image_tests PRIVATE
+    _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR
     $<$<BOOL:${WIN32}>:MSWindows;_WINDOWS>)
   if(MSVC)
     target_compile_options(depthgen_image_tests PRIVATE /utf-8 /W4 /permissive-)
@@ -404,6 +498,37 @@ if(DEPTHGEN_BUILD_TESTS)
     endif()
     set_tests_properties(depthgen_model_smoke PROPERTIES
       ENVIRONMENT "DEPTHGEN_MODEL_PATH=${DEPTHGEN_TEST_MODEL_PATH}")
+    add_executable(depthgen_embedded_model_smoke
+      tests/DepthGenModelSmoke.cpp
+      Source/DepthGen_EmbeddedModel.cpp
+      Source/DepthGen_Inference.cpp
+      Source/DepthGen_ModelIntegrity.cpp)
+    target_include_directories(depthgen_embedded_model_smoke PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+    target_link_libraries(depthgen_embedded_model_smoke PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
+    target_compile_definitions(depthgen_embedded_model_smoke PRIVATE
+      DEPTHGEN_HAS_ORT=1 DEPTHGEN_EMBEDDED_MODEL=1 _CRT_SECURE_NO_WARNINGS
+      ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
+    if(TARGET depthgen_build_model)
+      add_dependencies(depthgen_embedded_model_smoke depthgen_build_model)
+    endif()
+    if(MSVC)
+      target_compile_options(depthgen_embedded_model_smoke PRIVATE /utf-8 /W4 /permissive-)
+    endif()
+    if(WIN32)
+      target_sources(depthgen_embedded_model_smoke PRIVATE "${DEPTHGEN_MODEL_RC}")
+      add_custom_command(TARGET depthgen_embedded_model_smoke POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
+          "$<TARGET_FILE_DIR:depthgen_embedded_model_smoke>")
+    elseif(APPLE)
+      target_link_options(depthgen_embedded_model_smoke PRIVATE
+        "-Wl,-sectcreate,__DATA_CONST,__zipdepth,${DEPTHGEN_ZIPDEPTH_MODEL_PATH}"
+        "-Wl,-sectcreate,__DATA_CONST,__dav2,${DEPTHGEN_DAV2_MODEL_PATH}")
+      set_property(TARGET depthgen_embedded_model_smoke APPEND PROPERTY
+        LINK_DEPENDS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH};${DEPTHGEN_DAV2_MODEL_PATH}")
+    endif()
+    add_test(NAME depthgen_embedded_model_smoke
+      COMMAND "$<TARGET_FILE:depthgen_embedded_model_smoke>")
     if(DEPTHGEN_ORT_PROVIDER_DEFINITIONS)
       add_executable(depthgen_provider_parity
         tests/DepthGenProviderParity.cpp

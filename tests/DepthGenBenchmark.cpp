@@ -16,7 +16,7 @@ namespace {
 struct BenchmarkOptions {
 	int source_width = 1920;
 	int source_height = 1080;
-	int short_edge = 518;
+	int short_edge = 768;
 	int warm_up_runs = 3;
 	int measured_runs = 31;
 	depthgen::InferencePreference preference = depthgen::InferencePreference::Accelerated;
@@ -33,7 +33,7 @@ int ParsePositiveInteger(const char* value, const char* flag) {
 
 void PrintUsage() {
 	std::cout << "Usage: depthgen_benchmark [--quality fast|balanced|high] [--provider accelerated|cpu] "
-		"[--source-width N] [--source-height N] [--warm-up N] [--runs N]\n";
+		"[--short-edge N] [--source-width N] [--source-height N] [--warm-up N] [--runs N]\n";
 }
 
 BenchmarkOptions ParseOptions(int argc, char* argv[]) {
@@ -50,15 +50,17 @@ BenchmarkOptions ParseOptions(int argc, char* argv[]) {
 		const char* value = argv[++index];
 		if (argument == "--quality") {
 			const std::string quality = value;
-			if (quality == "fast") options.short_edge = 392;
-			else if (quality == "balanced") options.short_edge = 518;
-			else if (quality == "high") options.short_edge = 700;
+			if (quality == "fast") options.short_edge = 512;
+			else if (quality == "balanced") options.short_edge = 768;
+			else if (quality == "high") options.short_edge = 1080;
 			else throw std::runtime_error("--quality must be fast, balanced, or high.");
 		} else if (argument == "--provider") {
 			const std::string provider = value;
 			if (provider == "accelerated") options.preference = depthgen::InferencePreference::Accelerated;
 			else if (provider == "cpu") options.preference = depthgen::InferencePreference::Cpu;
 			else throw std::runtime_error("--provider must be accelerated or cpu.");
+		} else if (argument == "--short-edge") {
+			options.short_edge = ParsePositiveInteger(value, "--short-edge");
 		} else if (argument == "--source-width") {
 			options.source_width = ParsePositiveInteger(value, "--source-width");
 		} else if (argument == "--source-height") {
@@ -83,7 +85,7 @@ double Percentile(const std::vector<double>& sorted, double percentile) {
 }
 
 std::vector<float> MakeInput(int width, int height) {
-	// Planar NCHW, ImageNet-normalised — the same layout the effect produces.
+	// Planar NCHW in [0,1] — the same layout the effect produces.
 	std::vector<float> tensor(static_cast<size_t>(width) * static_cast<size_t>(height) * 3U);
 	const size_t plane = static_cast<size_t>(width) * static_cast<size_t>(height);
 	for (int y = 0; y < height; ++y) {
@@ -92,9 +94,9 @@ std::vector<float> MakeInput(int width, int height) {
 			const float horizontal = static_cast<float>(x) / static_cast<float>(std::max(width - 1, 1));
 			const float vertical = static_cast<float>(y) / static_cast<float>(std::max(height - 1, 1));
 			const float value = 0.5f + 0.5f * std::sin((horizontal + vertical) * 6.28318530718f);
-			tensor[index] = (horizontal - depthgen::kImageNetMean[0]) / depthgen::kImageNetDeviation[0];
-			tensor[plane + index] = (vertical - depthgen::kImageNetMean[1]) / depthgen::kImageNetDeviation[1];
-			tensor[plane * 2U + index] = (value - depthgen::kImageNetMean[2]) / depthgen::kImageNetDeviation[2];
+			tensor[index] = horizontal;
+			tensor[plane + index] = vertical;
+			tensor[plane * 2U + index] = value;
 		}
 	}
 	return tensor;
@@ -104,7 +106,7 @@ void RunInference(const std::vector<float>& input, int width, int height,
 	depthgen::InferencePreference preference, depthgen::InferenceProvider* provider) {
 	depthgen::InferenceResult result;
 	std::string error;
-	if (!depthgen::InferDepthAnythingSmall(input, width, height, &result, provider, &error, preference)) {
+	if (!depthgen::InferZipDepth(input, width, height, &result, provider, &error, preference)) {
 		throw std::runtime_error(error);
 	}
 	if (result.width <= 0 || result.height <= 0 || result.depth.empty()) {

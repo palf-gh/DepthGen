@@ -120,6 +120,24 @@ private:
 	uint64_t bit_length_ = 0;
 };
 
+std::string DigestText(const std::array<uint8_t, 32>& bytes) {
+	std::ostringstream text;
+	text << std::hex << std::setfill('0');
+	for (const uint8_t byte : bytes) text << std::setw(2) << static_cast<unsigned int>(byte);
+	return text.str();
+}
+
+bool VerifyDigest(const std::string& actual, const char* expected, std::string* error) {
+	if (!expected || actual != expected) {
+		if (error) {
+			*error = "DepthGen model SHA-256 mismatch. Expected " +
+				std::string(expected ? expected : "(none)") + ", got " + actual + ".";
+		}
+		return false;
+	}
+	return true;
+}
+
 } // namespace
 
 bool ComputeSha256File(const std::filesystem::path& path, std::string* digest, std::string* error) {
@@ -143,25 +161,35 @@ bool ComputeSha256File(const std::filesystem::path& path, std::string* digest, s
 		if (error) *error = "DepthGen could not finish reading the model for SHA-256 verification.";
 		return false;
 	}
-	const auto bytes = hasher.Finalise();
-	std::ostringstream text;
-	text << std::hex << std::setfill('0');
-	for (const uint8_t byte : bytes) text << std::setw(2) << static_cast<unsigned int>(byte);
-	*digest = text.str();
+	*digest = DigestText(hasher.Finalise());
 	return true;
 }
 
-bool VerifyDepthAnythingSmallModel(const std::filesystem::path& path, std::string* error) {
-	std::string actual;
-	if (!ComputeSha256File(path, &actual, error)) return false;
-	if (actual != kDepthAnythingSmallModelSha256) {
-		if (error) {
-			*error = "DepthGen model SHA-256 mismatch. Expected " +
-				std::string(kDepthAnythingSmallModelSha256) + ", got " + actual + ".";
-		}
+bool ComputeSha256Bytes(const void* data, size_t size, std::string* digest, std::string* error) {
+	if (!digest) {
+		if (error) *error = "DepthGen SHA-256 output was not supplied.";
 		return false;
 	}
+	if (!data || size == 0) {
+		if (error) *error = "DepthGen embedded model is empty.";
+		return false;
+	}
+	Sha256 hasher;
+	hasher.Update(static_cast<const uint8_t*>(data), size);
+	*digest = DigestText(hasher.Finalise());
 	return true;
+}
+
+bool VerifyModelSha256(const std::filesystem::path& path, const char* expected, std::string* error) {
+	std::string actual;
+	if (!ComputeSha256File(path, &actual, error)) return false;
+	return VerifyDigest(actual, expected, error);
+}
+
+bool VerifyModelSha256(const void* data, size_t size, const char* expected, std::string* error) {
+	std::string actual;
+	if (!ComputeSha256Bytes(data, size, &actual, error)) return false;
+	return VerifyDigest(actual, expected, error);
 }
 
 } // namespace depthgen

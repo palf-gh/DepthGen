@@ -42,26 +42,28 @@ int RoundUpToPatchMultiple(int value, int patch) noexcept {
 }
 
 void ComputeInferenceSize(int source_width, int source_height, int short_edge,
-	int* out_width, int* out_height) noexcept {
+	int* out_width, int* out_height, int patch) noexcept {
 	if (!out_width || !out_height || source_width <= 0 || source_height <= 0) {
 		if (out_width) *out_width = 0;
 		if (out_height) *out_height = 0;
 		return;
 	}
-	const float scale = static_cast<float>(std::max(short_edge, 14)) /
+	const int alignment = std::max(patch, 1);
+	const float scale = static_cast<float>(std::max(short_edge, alignment)) /
 		static_cast<float>(std::min(source_width, source_height));
-	*out_width = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_width * scale)));
-	*out_height = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_height * scale)));
+	*out_width = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_width * scale)), alignment);
+	*out_height = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_height * scale)), alignment);
 }
 
 int ScaleShortEdgeToRender(int full_width, int full_height, int render_width,
-	int render_height, int full_res_short_edge) noexcept {
+	int render_height, int full_res_short_edge, int patch) noexcept {
+	const int alignment = std::max(patch, 1);
 	const int full_short = std::min(std::max(full_width, 1), std::max(full_height, 1));
 	const int render_short = std::min(std::max(render_width, 1), std::max(render_height, 1));
 	const int scaled = static_cast<int>(
-		(static_cast<long long>(std::max(full_res_short_edge, 14)) * render_short +
+		(static_cast<long long>(std::max(full_res_short_edge, alignment)) * render_short +
 			full_short / 2) / full_short);
-	return std::max(14, scaled);
+	return std::max(alignment, scaled);
 }
 
 FloatImage ResizeBilinearAligned(const FloatImage& input, int out_width, int out_height) {
@@ -101,14 +103,71 @@ float LinearToSrgb(float value) noexcept {
 	return value <= 0.0031308f ? value * 12.92f : 1.055f * std::pow(value, 1.0f / 2.4f) - 0.055f;
 }
 
-void ImageNetNormaliseInterleavedRgb(std::vector<float>* rgb) {
-	if (!rgb) {
+DepthLevels ComputeDepthLevels(
+	const std::vector<float>& depth,
+	const std::vector<float>& alpha,
+	float alpha_threshold,
+	bool use_alpha_for_levels,
+	float far_percentile,
+	float near_percentile) {
+	DepthLevels levels;
+	if (depth.empty() || depth.size() != alpha.size()) {
+		return levels;
+	}
+	std::vector<float> samples;
+	samples.reserve(depth.size());
+	for (size_t i = 0; i < depth.size(); ++i) {
+		if ((!use_alpha_for_levels || alpha[i] > alpha_threshold) && std::isfinite(depth[i])) {
+			samples.push_back(depth[i]);
+		}
+	}
+	if (samples.empty()) {
+		return levels;
+	}
+	levels.low = PercentileFromUnsorted(&samples, std::min(far_percentile, near_percentile));
+	levels.high = PercentileFromUnsorted(&samples, std::max(far_percentile, near_percentile));
+	levels.valid = levels.high > levels.low;
+	return levels;
+}
+
+void ApplyDepthLevels(
+	std::vector<float>* depth,
+	const DepthLevels& levels,
+	float contrast,
+	bool invert) {
+	if (!depth || depth->empty() || !levels.valid) {
+		if (depth) {
+			std::fill(depth->begin(), depth->end(), 0.0f);
+		}
 		return;
 	}
-	for (size_t pixel = 0; pixel + 2 < rgb->size(); pixel += 3) {
-		for (size_t channel = 0; channel < 3; ++channel) {
-			(*rgb)[pixel + channel] =
-				((*rgb)[pixel + channel] - kImageNetMean[channel]) / kImageNetDeviation[channel];
+	const float span = std::max(levels.high - levels.low, std::numeric_limits<float>::epsilon());
+	const float inverse_span = 1.0f / span;
+	const float gamma = std::max(contrast, 0.01f);
+	if (std::abs(gamma - 1.0f) <= 1.0e-6f) {
+		if (invert) {
+			for (float& value : *depth) {
+				value = 1.0f - Clamp01((value - levels.low) * inverse_span);
+			}
+		} else {
+			for (float& value : *depth) {
+				value = Clamp01((value - levels.low) * inverse_span);
+			}
+		}
+		return;
+	}
+	std::array<float, kGammaLutSize> lut{};
+	const float exponent = 1.0f / gamma;
+	for (size_t i = 0; i < lut.size(); ++i) {
+		lut[i] = std::pow(static_cast<float>(i) / static_cast<float>(lut.size() - 1), exponent);
+	}
+	if (invert) {
+		for (float& value : *depth) {
+			value = 1.0f - SampleLut(lut.data(), lut.size(), (value - levels.low) * inverse_span);
+		}
+	} else {
+		for (float& value : *depth) {
+			value = SampleLut(lut.data(), lut.size(), (value - levels.low) * inverse_span);
 		}
 	}
 }
@@ -125,48 +184,22 @@ void MapRelativeDepthToUnit(
 	if (!depth || depth->empty() || depth->size() != alpha.size()) {
 		return;
 	}
-	std::vector<float> samples;
-	samples.reserve(depth->size());
-	for (size_t i = 0; i < depth->size(); ++i) {
-		if ((!use_alpha_for_levels || alpha[i] > alpha_threshold) && std::isfinite((*depth)[i])) {
-			samples.push_back((*depth)[i]);
-		}
-	}
-	if (samples.empty()) {
-		std::fill(depth->begin(), depth->end(), 0.0f);
+	ApplyDepthLevels(depth, ComputeDepthLevels(*depth, alpha, alpha_threshold, use_alpha_for_levels,
+		far_percentile, near_percentile), contrast, invert);
+}
+
+void ApplyImageNetToPlanarRgb(std::vector<float>* nchw_rgb, int width, int height) {
+	if (!nchw_rgb || width <= 0 || height <= 0) {
 		return;
 	}
-	const float low = PercentileFromUnsorted(&samples, std::min(far_percentile, near_percentile));
-	const float high = PercentileFromUnsorted(&samples, std::max(far_percentile, near_percentile));
-	const float span = std::max(high - low, std::numeric_limits<float>::epsilon());
-	const float inverse_span = 1.0f / span;
-	const float gamma = std::max(contrast, 0.01f);
-	if (std::abs(gamma - 1.0f) <= 1.0e-6f) {
-		if (invert) {
-			for (float& value : *depth) {
-				value = 1.0f - Clamp01((value - low) * inverse_span);
-			}
-		} else {
-			for (float& value : *depth) {
-				value = Clamp01((value - low) * inverse_span);
-			}
-		}
+	const size_t plane = static_cast<size_t>(width) * static_cast<size_t>(height);
+	if (nchw_rgb->size() != plane * 3U) {
 		return;
 	}
-	// pow() per pixel at full resolution is expensive; a 4096-entry LUT with
-	// linear interpolation stays far below display quantisation error.
-	std::array<float, kGammaLutSize> lut{};
-	const float exponent = 1.0f / gamma;
-	for (size_t i = 0; i < lut.size(); ++i) {
-		lut[i] = std::pow(static_cast<float>(i) / static_cast<float>(lut.size() - 1), exponent);
-	}
-	if (invert) {
-		for (float& value : *depth) {
-			value = 1.0f - SampleLut(lut.data(), lut.size(), (value - low) * inverse_span);
-		}
-	} else {
-		for (float& value : *depth) {
-			value = SampleLut(lut.data(), lut.size(), (value - low) * inverse_span);
+	for (size_t channel = 0; channel < 3; ++channel) {
+		float* plane_data = nchw_rgb->data() + channel * plane;
+		for (size_t index = 0; index < plane; ++index) {
+			plane_data[index] = (plane_data[index] - kImageNetMean[channel]) / kImageNetDeviation[channel];
 		}
 	}
 }

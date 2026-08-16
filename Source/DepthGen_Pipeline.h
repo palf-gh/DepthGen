@@ -44,10 +44,10 @@ void ReadPixel(const Pixel& pixel, float* red, float* green, float* blue, float*
 
 template <>
 inline void ReadPixel(const PF_Pixel& pixel, float* red, float* green, float* blue, float* alpha) {
-	*red = pixel.red / 255.0f;
-	*green = pixel.green / 255.0f;
-	*blue = pixel.blue / 255.0f;
-	*alpha = pixel.alpha / 255.0f;
+	*red = pixel.red * kByteToUnit;
+	*green = pixel.green * kByteToUnit;
+	*blue = pixel.blue * kByteToUnit;
+	*alpha = pixel.alpha * kByteToUnit;
 }
 
 template <>
@@ -139,7 +139,7 @@ std::vector<float> ReadWorldAlpha(const PF_EffectWorld* world) {
 
 // Samples the (premultiplied) source world straight into the model's NCHW
 // tensor at inference size: alpha-weighted bilinear reduction, unpremultiply,
-// optional linear-to-sRGB, and ImageNet normalisation, all in one pass.
+// optional linear-to-sRGB, and [0,1] byte normalisation, all in one pass.
 template <typename Pixel>
 std::vector<float> ReadWorldToInferenceTensor(const PF_EffectWorld* world,
 	int inference_width, int inference_height, bool linear_to_srgb) {
@@ -202,8 +202,7 @@ std::vector<float> ReadWorldToInferenceTensor(const PF_EffectWorld* world,
 				}
 			}
 			for (size_t channel = 0; channel < 3; ++channel) {
-				tensor[channel * plane + index] =
-					(colour[channel] - kImageNetMean[channel]) / kImageNetDeviation[channel];
+				tensor[channel * plane + index] = colour[channel];
 			}
 		}
 	}
