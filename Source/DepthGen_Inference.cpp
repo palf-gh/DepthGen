@@ -137,8 +137,8 @@ public:
 		InferencePreference preference) {
 		std::lock_guard<std::mutex> lock(mutex_);
 		ModelSource source;
-		if (!ResolveModelSource(model, &source, error) || !EnsureModelIntegrity(source, error)) return false;
 		try {
+			if (!ResolveModelSource(model, &source, error) || !EnsureModelIntegrity(source, error)) return false;
 			EnsureSession(source, width, height, provider, preference);
 			CachedSession& slot = SlotFor(model);
 			const std::array<int64_t, 4> shape = {1, 3, height, width};
@@ -185,6 +185,12 @@ public:
 				throw std::runtime_error("the model returned a dynamic depth shape");
 			}
 			const size_t count = static_cast<size_t>(output_width) * static_cast<size_t>(output_height);
+			if (info.GetElementType() != ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+				throw std::runtime_error("the model returned an unexpected depth tensor element type");
+			}
+			if (info.GetElementCount() != count) {
+				throw std::runtime_error("the model returned an unexpected depth tensor element count");
+			}
 			const float* values = outputs[0].GetTensorData<float>();
 			result->width = output_width;
 			result->height = output_height;
@@ -454,16 +460,15 @@ private:
 	}
 
 	static Ort::Env& Environment() {
-#if defined(DEPTHGEN_ORT_CUDA)
-		// CUDA EP teardown in current ORT packages can dereference a dead logger
-		// during process/module unload. Process-lifetime ownership avoids that
-		// shutdown-order defect; the OS reclaims the singleton on process exit.
+		// Execution-provider and session teardown during process or module
+		// unload can run against an already-destroyed environment or an
+		// already-unloaded onnxruntime.dll: destructor order between
+		// function-local statics and the runtime DLL's unload is not
+		// guaranteed. Process-lifetime ownership (heap-allocated, never
+		// deleted) sidesteps that ordering entirely, since the operating
+		// system reclaims everything, DLL included, at process exit.
 		static Ort::Env* environment = new Ort::Env(ORT_LOGGING_LEVEL_WARNING, "DepthGen");
 		return *environment;
-#else
-		static Ort::Env environment(ORT_LOGGING_LEVEL_WARNING, "DepthGen");
-		return environment;
-#endif
 	}
 
 	std::mutex mutex_;
@@ -515,13 +520,8 @@ bool InferDepth(
 	if (!EnsureOnnxRuntimeLoaded(error)) {
 		return false;
 	}
-#if defined(DEPTHGEN_ORT_CUDA)
 	static Runtime* runtime = new Runtime();
 	return runtime->Infer(nchw_rgb, width, height, model, result, provider, error, preference);
-#else
-	static Runtime runtime;
-	return runtime.Infer(nchw_rgb, width, height, model, result, provider, error, preference);
-#endif
 #else
 	(void)nchw_rgb;
 	(void)model;

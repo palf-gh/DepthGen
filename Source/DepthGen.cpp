@@ -217,6 +217,26 @@ std::uint64_t CacheIdFromRender(PF_InData* in_data) {
 	if (!in_data) {
 		return 0;
 	}
+	// PF_OutFlag2_SUPPORTS_THREADED_RENDERING is set, so the const-sequence-data
+	// suite is the sanctioned way to read sequence data at render time; try it
+	// first and fall back to the direct handle read below only when the suite
+	// is unavailable or does not yield a usable cache id.
+	if (in_data->pica_basicP) {
+		PF_EffectSequenceDataSuite1* suite = nullptr;
+		if (AEFX_AcquireSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
+			nullptr, reinterpret_cast<void**>(&suite)) == PF_Err_NONE && suite) {
+			PF_ConstHandle const_handle = nullptr;
+			const PF_Err err = suite->PF_GetConstSequenceData(in_data->effect_ref, &const_handle);
+			(void)AEFX_ReleaseSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
+				nullptr);
+			if (err == PF_Err_NONE && const_handle) {
+				const std::uint64_t cache_id = SequenceCacheId(*const_handle);
+				if (cache_id != 0) {
+					return cache_id;
+				}
+			}
+		}
+	}
 	if (in_data->sequence_data) {
 		void* locked = LockSequenceHandle(in_data, in_data->sequence_data);
 		const std::uint64_t cache_id = SequenceCacheId(locked);
@@ -225,22 +245,7 @@ std::uint64_t CacheIdFromRender(PF_InData* in_data) {
 			return cache_id;
 		}
 	}
-	if (!in_data->pica_basicP) {
-		return 0;
-	}
-	PF_EffectSequenceDataSuite1* suite = nullptr;
-	if (AEFX_AcquireSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
-		nullptr, reinterpret_cast<void**>(&suite)) != PF_Err_NONE || !suite) {
-		return 0;
-	}
-	PF_ConstHandle const_handle = nullptr;
-	const PF_Err err = suite->PF_GetConstSequenceData(in_data->effect_ref, &const_handle);
-	(void)AEFX_ReleaseSuite(in_data, nullptr, kPFEffectSequenceDataSuite, kPFEffectSequenceDataSuiteVersion1,
-		nullptr);
-	if (err != PF_Err_NONE || !const_handle) {
-		return 0;
-	}
-	return SequenceCacheId(*const_handle);
+	return 0;
 }
 
 std::shared_ptr<depthgen::TemporalHistory> HistoryFromSequence(PF_InData* in_data) {
