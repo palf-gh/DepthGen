@@ -11,7 +11,8 @@ compile_commands.json
 /Resources/Models/*.data
 /Resources/Models/*.sha256
 
-# Release staging and host-local installation output
+# Local CMake outputs. Embedded models make Release plug-ins exceed GitHub's
+# 100 MB blob limit, so binaries are not tracked; ship them via GitHub Releases.
 /dist/
 /package/
 

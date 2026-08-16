@@ -3,13 +3,18 @@
 #include <cstring>
 
 enum class DepthGenString {
+	ModelName,
+	ModelItems,
 	QualityName,
 	QualityItems,
+	Dav2QualityItems,
 	FarPercentile,
 	NearPercentile,
 	Contrast,
 	Invert,
+	TemporalStability,
 	ShowAdvanced,
+	AdvancedGroup,
 	CustomShortEdge,
 	InputTransfer,
 	InputTransferItems,
@@ -23,13 +28,19 @@ namespace depthgen_localise {
 
 inline const char* English(DepthGenString key) {
 	switch (key) {
+	case DepthGenString::ModelName: return "Model";
+	case DepthGenString::ModelItems:
+		return "ZipDepth (speed)|Depth Anything V2 Small (quality)";
 	case DepthGenString::QualityName: return "Quality";
-	case DepthGenString::QualityItems: return "Fast (392 px)|Balanced (518 px)|High (700 px)|Custom";
+	case DepthGenString::QualityItems: return "Fast (512 px)|Balanced (768 px)|High (1080 px)|Custom";
+	case DepthGenString::Dav2QualityItems: return "Fast (384 px)|Balanced (518 px)|High (736 px)|Custom";
 	case DepthGenString::FarPercentile: return "Far Clip";
 	case DepthGenString::NearPercentile: return "Near Clip";
 	case DepthGenString::Contrast: return "Contrast";
 	case DepthGenString::Invert: return "Invert Depth";
+	case DepthGenString::TemporalStability: return "Temporal Stability";
 	case DepthGenString::ShowAdvanced: return "Show Advanced Controls";
+	case DepthGenString::AdvancedGroup: return "Advanced";
 	case DepthGenString::CustomShortEdge: return "Custom Short Edge";
 	case DepthGenString::InputTransfer: return "Input Transfer";
 	case DepthGenString::InputTransferItems: return "Assume sRGB|Linear to sRGB";
@@ -43,13 +54,19 @@ inline const char* English(DepthGenString key) {
 
 inline const char* Japanese(DepthGenString key) {
 	switch (key) {
+	case DepthGenString::ModelName: return u8"モデル";
+	case DepthGenString::ModelItems:
+		return u8"ZipDepth (速度優先)|Depth Anything V2 Small (品質優先)";
 	case DepthGenString::QualityName: return u8"品質";
-	case DepthGenString::QualityItems: return u8"高速 (392 px)|標準 (518 px)|高品質 (700 px)|カスタム";
+	case DepthGenString::QualityItems: return u8"高速 (512 px)|標準 (768 px)|高品質 (1080 px)|カスタム";
+	case DepthGenString::Dav2QualityItems: return u8"高速 (384 px)|標準 (518 px)|高品質 (736 px)|カスタム";
 	case DepthGenString::FarPercentile: return u8"遠景クリップ";
 	case DepthGenString::NearPercentile: return u8"近景クリップ";
 	case DepthGenString::Contrast: return u8"コントラスト";
 	case DepthGenString::Invert: return u8"深度を反転";
+	case DepthGenString::TemporalStability: return u8"時間安定";
 	case DepthGenString::ShowAdvanced: return u8"詳細設定を表示";
+	case DepthGenString::AdvancedGroup: return u8"詳細設定";
 	case DepthGenString::CustomShortEdge: return u8"カスタム短辺";
 	case DepthGenString::InputTransfer: return u8"入力トランスファー";
 	case DepthGenString::InputTransferItems: return u8"sRGB として扱う|リニアから sRGB";
@@ -63,13 +80,19 @@ inline const char* Japanese(DepthGenString key) {
 
 inline const char* Chinese(DepthGenString key) {
 	switch (key) {
+	case DepthGenString::ModelName: return u8"模型";
+	case DepthGenString::ModelItems:
+		return u8"ZipDepth (速度优先)|Depth Anything V2 Small (质量优先)";
 	case DepthGenString::QualityName: return u8"质量";
-	case DepthGenString::QualityItems: return u8"快速 (392 px)|均衡 (518 px)|高质量 (700 px)|自定义";
+	case DepthGenString::QualityItems: return u8"快速 (512 px)|均衡 (768 px)|高质量 (1080 px)|自定义";
+	case DepthGenString::Dav2QualityItems: return u8"快速 (384 px)|均衡 (518 px)|高质量 (736 px)|自定义";
 	case DepthGenString::FarPercentile: return u8"远景裁剪";
 	case DepthGenString::NearPercentile: return u8"近景裁剪";
 	case DepthGenString::Contrast: return u8"对比度";
 	case DepthGenString::Invert: return u8"反转深度";
+	case DepthGenString::TemporalStability: return u8"时间稳定";
 	case DepthGenString::ShowAdvanced: return u8"显示高级控件";
+	case DepthGenString::AdvancedGroup: return u8"高级";
 	case DepthGenString::CustomShortEdge: return u8"自定义短边";
 	case DepthGenString::InputTransfer: return u8"输入传递函数";
 	case DepthGenString::InputTransferItems: return u8"假定 sRGB|线性转 sRGB";
@@ -83,13 +106,19 @@ inline const char* Chinese(DepthGenString key) {
 
 inline const char* Korean(DepthGenString key) {
 	switch (key) {
+	case DepthGenString::ModelName: return u8"모델";
+	case DepthGenString::ModelItems:
+		return u8"ZipDepth (속도 우선)|Depth Anything V2 Small (품질 우선)";
 	case DepthGenString::QualityName: return u8"품질";
-	case DepthGenString::QualityItems: return u8"빠름 (392 px)|균형 (518 px)|고품질 (700 px)|사용자 지정";
+	case DepthGenString::QualityItems: return u8"빠름 (512 px)|균형 (768 px)|고품질 (1080 px)|사용자 지정";
+	case DepthGenString::Dav2QualityItems: return u8"빠름 (384 px)|균형 (518 px)|고품질 (736 px)|사용자 지정";
 	case DepthGenString::FarPercentile: return u8"원거리 클립";
 	case DepthGenString::NearPercentile: return u8"근거리 클립";
 	case DepthGenString::Contrast: return u8"대비";
 	case DepthGenString::Invert: return u8"깊이 반전";
+	case DepthGenString::TemporalStability: return u8"시간 안정성";
 	case DepthGenString::ShowAdvanced: return u8"고급 컨트롤 표시";
+	case DepthGenString::AdvancedGroup: return u8"고급";
 	case DepthGenString::CustomShortEdge: return u8"사용자 지정 짧은 변";
 	case DepthGenString::InputTransfer: return u8"입력 전달 함수";
 	case DepthGenString::InputTransferItems: return u8"sRGB로 간주|선형에서 sRGB";

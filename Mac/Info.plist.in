@@ -5,13 +5,13 @@
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleExecutable</key>
-  <string>DepthGen</string>
+  <string>@BUNDLE_EXECUTABLE@</string>
   <key>CFBundleIdentifier</key>
-  <string>com.palf.depthgen</string>
+  <string>@BUNDLE_IDENTIFIER@</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>DepthGen</string>
+  <string>@BUNDLE_NAME@</string>
   <key>CFBundlePackageType</key>
   <string>eFKT</string>
   <key>CFBundleShortVersionString</key>

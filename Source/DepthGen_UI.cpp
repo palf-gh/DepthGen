@@ -1,81 +1,58 @@
 #include "DepthGen.h"
+#include "Localise/DepthGenStrings.h"
 
-namespace {
-
-bool ReadCheckbox(PF_InData* in_data, A_long parameter_id, bool fallback) {
-	PF_ParamDef parameter{};
-	if (PF_CHECKOUT_PARAM(in_data, parameter_id, in_data->current_time, in_data->time_step,
-		in_data->time_scale, &parameter) != PF_Err_NONE) {
-		return fallback;
-	}
-	const bool value = parameter.u.bd.value != 0;
-	(void)PF_CHECKIN_PARAM(in_data, &parameter);
-	return value;
-}
-
-PF_Err SetVisible(
-	PF_InData* in_data,
-	AEGP_SuiteHandler& suites,
-	AEGP_PluginID plugin_id,
-	AEGP_EffectRefH effect,
-	A_long parameter_index,
-	bool visible) {
-	(void)in_data;
-	if (!plugin_id || !effect || !suites.StreamSuite2() || !suites.DynamicStreamSuite2()) {
-		return PF_Err_NONE;
-	}
-	AEGP_StreamRefH stream = nullptr;
-	PF_Err err = suites.StreamSuite2()->AEGP_GetNewEffectStreamByIndex(
-		plugin_id, effect, parameter_index, &stream);
-	if (!err && stream) {
-		err = suites.DynamicStreamSuite2()->AEGP_SetDynamicStreamFlag(
-			stream, AEGP_DynStreamFlag_HIDDEN, FALSE, !visible);
-		(void)suites.StreamSuite2()->AEGP_DisposeStream(stream);
-	}
-	return err;
-}
-
-} // namespace
+#include <cstring>
 
 PF_Err DepthGen_UpdateParamsUI(
 	PF_InData* in_data,
 	PF_OutData* out_data,
 	PF_ParamDef* params[],
 	PF_LayerDef* output) {
-	(void)out_data;
-	(void)params;
 	(void)output;
-	if (!in_data || !in_data->global_data || !in_data->pica_basicP || !params) {
+	if (!in_data || !params || !in_data->pica_basicP) {
+		return PF_Err_NONE;
+	}
+	const A_long model_index = ParamIndexFromID(DEPTHGEN_MODEL);
+	const A_long quality_index = ParamIndexFromID(DEPTHGEN_QUALITY);
+	const A_long custom_index = ParamIndexFromID(DEPTHGEN_CUSTOM_SHORT_EDGE);
+	if (model_index < 1 || quality_index < 1 || custom_index < 1 ||
+		!params[model_index] || !params[quality_index] || !params[custom_index]) {
 		return PF_Err_NONE;
 	}
 	AEGP_SuiteHandler suites(in_data->pica_basicP);
-	if (!suites.HandleSuite1() || !suites.PFInterfaceSuite1() || !suites.EffectSuite2()) {
+	if (!suites.ParamUtilsSuite3()) {
 		return PF_Err_NONE;
 	}
-	DepthGenGlobalData* global = reinterpret_cast<DepthGenGlobalData*>(
-		suites.HandleSuite1()->host_lock_handle(in_data->global_data));
-	const AEGP_PluginID plugin_id = global ? global->plugin_id : 0;
-	if (global) {
-		suites.HandleSuite1()->host_unlock_handle(in_data->global_data);
-	}
-	AEGP_EffectRefH effect = nullptr;
-	PF_Err err = suites.PFInterfaceSuite1()->AEGP_GetNewEffectForEffect(plugin_id, in_data->effect_ref, &effect);
-	if (err || !effect) {
-		return err;
-	}
-	const bool show_advanced = ReadCheckbox(in_data, DEPTHGEN_SHOW_ADVANCED, false);
-	const A_long advanced[] = {
-		DEPTHGEN_CUSTOM_SHORT_EDGE,
-		DEPTHGEN_INPUT_TRANSFER,
-		DEPTHGEN_USE_ALPHA_FOR_LEVELS,
-		DEPTHGEN_ALPHA_THRESHOLD,
-		DEPTHGEN_OUTPUT_ALPHA};
-	for (A_long index : advanced) {
-		const PF_Err visibility_error = SetVisible(in_data, suites, plugin_id, effect, index, show_advanced);
-		if (!err && visibility_error) {
-			err = visibility_error;
+	using depthgen_localise::GetString;
+	const bool dav2 = params[model_index]->u.pd.value == DEPTHGEN_MODEL_DAV2_SMALL;
+	const char* quality_items = GetString(
+		dav2 ? DepthGenString::Dav2QualityItems : DepthGenString::QualityItems, in_data);
+	PF_Err err = PF_Err_NONE;
+	if (!params[quality_index]->u.pd.u.namesptr ||
+		std::strcmp(params[quality_index]->u.pd.u.namesptr, quality_items) != 0) {
+		PF_ParamDef updated = *params[quality_index];
+		updated.u.pd.u.namesptr = quality_items;
+		err = suites.ParamUtilsSuite3()->PF_UpdateParamUI(
+			in_data->effect_ref, quality_index, &updated);
+		if (!err) {
+			params[quality_index]->u.pd.u.namesptr = quality_items;
 		}
 	}
-	(void)suites.EffectSuite2()->AEGP_DisposeEffect(effect);
+	const bool enable_custom = params[quality_index]->u.pd.value == DEPTHGEN_QUALITY_CUSTOM;
+	const bool currently_disabled = (params[custom_index]->ui_flags & PF_PUI_DISABLED) != 0;
+	if (!err && currently_disabled != !enable_custom) {
+		PF_ParamDef updated = *params[custom_index];
+		if (enable_custom) {
+			updated.ui_flags &= ~static_cast<A_long>(PF_PUI_DISABLED);
+		} else {
+			updated.ui_flags |= PF_PUI_DISABLED;
+		}
+		err = suites.ParamUtilsSuite3()->PF_UpdateParamUI(
+			in_data->effect_ref, custom_index, &updated);
+		if (!err) {
+			params[custom_index]->ui_flags = updated.ui_flags;
+		}
+	}
+	(void)out_data;
 	return err;
 }

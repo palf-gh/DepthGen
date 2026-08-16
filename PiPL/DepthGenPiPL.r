@@ -28,7 +28,9 @@ resource 'PiPL' (16000) {
         AE_Effect_Global_OutFlags { DEPTHGEN_OUT_FLAGS },
         AE_Effect_Global_OutFlags_2 { DEPTHGEN_OUT_FLAGS2 },
         AE_Effect_Match_Name { DEPTHGEN_MATCH_NAME },
+#if DEPTHGEN_PIPL_HAS_SUPPORT_URL
         AE_Effect_Support_URL { DEPTHGEN_SUPPORT_URL },
+#endif
         AE_Reserved_Info { 0 }
     }
 };

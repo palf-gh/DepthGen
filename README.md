@@ -1,59 +1,342 @@
 # DepthGen for After Effects
 
-[日本語](README_ja.md) · [简体中文](README_zh_CN.md) · [한국어](README_ko_KR.md)
+[English](#english) · [日本語](#日本語) · [中文](#中文) · [한국어](#한국어)
 
-DepthGen is an MIT-licensed Adobe After Effects effect which converts its
-source layer into an AI-estimated **relative** depth map. It uses the
-Apache-2.0 Depth Anything V2 Small model through ONNX Runtime. White means
-nearer apparent depth by default; black means farther apparent depth.
+**Current plug-in version: 1.0.0 (release)**
+
+---
+
+## English
+
+DepthGen is an Adobe After Effects effect which converts its source layer into
+an AI-estimated **relative** depth map. A **Model** popup selects
+[ZipDepth](https://github.com/fabiotosi92/ZipDepth) Base NPU (speed) or
+[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) Small
+(quality). White means nearer apparent depth by default; black means farther
+apparent depth.
+
+Both ONNX graphs are embedded in the plug-in executable. ZipDepth is an IR-v8 /
+opset-17 export of the pinned MIT NPU checkpoint (`[0,1]` planar RGB, 32-pixel
+alignment). Depth Anything V2 Small is the Apache-2.0 DirectML-ready repackage
+from [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)
+(ImageNet-normalised planar RGB, 14-pixel alignment). Inference tries CUDA,
+then DirectML, then Core ML, then CPU. See
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#english).
 
 It is intended for compositing, depth mattes, and depth-aware effects. A
 single image cannot establish real-world distance, so DepthGen does not claim
 metric depth or temporal tracking.
 
-## Features
+### Features
 
-- Deterministic per-frame SmartFX rendering compatible with Multi-Frame
-  Rendering and arbitrary frame order.
+- Deterministic SmartFX rendering compatible with Multi-Frame Rendering and
+  arbitrary frame order. Temporal Stabilisation uses a time-keyed cache of
+  range statistics and leaves a frame unadjusted when the previous sample is missing.
 - 8/16/32-bpc depth output with source-alpha preservation.
-- Fast (392 px), Balanced (518 px), High (700 px), and custom inference size.
-- Robust near/far percentile mapping, contrast, depth inversion, sRGB/linear
-  input selection, and alpha-aware levels.
-- Windows DirectML and macOS Core ML when compiled into the supplied ONNX
-  Runtime; deterministic CPU fallback if accelerated session initialisation or
-  inference fails.
+- Fast / Balanced / High inference sizes that differ per model (ZipDepth 512/768/1080, Depth Anything V2 Small 384/518/736), plus 256–2160 px Custom.
+- Model popup: ZipDepth (speed) or Depth Anything V2 Small (quality).
+- Robust near/far percentile mapping, contrast, depth inversion, temporal
+  stability, sRGB/linear input selection, and alpha-aware levels.
+- CUDA, DirectML, or Core ML when present in the supplied ONNX Runtime, with
+  deterministic fallback to the next provider and then CPU.
 - English, Japanese, Simplified Chinese, and Korean Effect Controls.
 
-## Installation
+### Installation
 
-Extract a verified release so that `DepthGen.aex` (Windows) or
-`DepthGen.plugin` (macOS) remains beside its `Resources/Models` directory and
-the bundled ONNX Runtime libraries. Copy the complete directory into the
-After Effects plug-ins folder, then restart After Effects. Do not move only the
-plug-in binary: the model is an intentional external resource.
+The verified ZipDepth and Depth Anything V2 Small ONNX graphs are embedded in
+the plug-in executable. On Windows, copy `DepthGen.aex` into the After Effects
+plug-ins folder; ONNX Runtime is embedded and extracted to LocalAppData on first
+use. On macOS, `DepthGen.plugin` contains both models and runtime frameworks;
+copy the complete bundle. Restart After Effects after installation.
 
-## Controls
+Windows:
+
+```text
+C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Plug-ins\
+```
+
+macOS:
+
+```text
+/Applications/Adobe After Effects <version>/Plug-ins/
+```
+
+### Controls
 
 | Control | Meaning |
 | --- | --- |
-| Quality | Fast 392px, Balanced 518px (default), High 700px, or Custom. The value is the inference short edge. |
+| Model | ZipDepth (speed) or Depth Anything V2 Small (quality). |
+| Quality | Fast / Balanced / High short-edge sizes depend on Model: ZipDepth uses 512 / 768 / 1080 px; Depth Anything V2 Small uses 384 / 518 / 736 px. Custom is 256–2160 px for both. Lower preview resolutions scale the labelled short edge automatically. ZipDepth rounds model dimensions up to 32-pixel boundaries; Depth Anything V2 Small uses 14-pixel boundaries. |
 | Far Clip / Near Clip | Robust percentiles mapped to black / white. Defaults are 2% and 98%. |
 | Contrast | Post-normalisation contrast; `1.0` is neutral. |
 | Invert Depth | Reverses the white-near convention. |
-| Show Advanced Controls | Reveals custom size, input transfer, alpha-aware levels, alpha threshold, and output-alpha mode. |
+| Temporal Stability | 0–100 (default 0, off). Smooths Far/Near mapping endpoints and piecewise-matches the depth histogram, including midtones, to the previous frame. Spatial structure is not mixed, so moving edges do not ghost. |
+| Advanced | Group containing Custom Short Edge, Input Transfer (`Assume sRGB` / `Linear to sRGB`), Use Alpha for Levels, Alpha Threshold, and Output Alpha (`Preserve Source Alpha` / `Opaque`). |
 
-## Build, model, and licences
+### Build, model, and licences
 
-See [docs/BUILD.md](docs/BUILD.md), [docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md),
-and [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+See [docs/BUILD.md](docs/BUILD.md#english), [docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#english),
+and [docs/BENCHMARKS.md](docs/BENCHMARKS.md#english).
 The source repository deliberately excludes model weights and runtime binaries.
 `THIRD_PARTY_NOTICES.md` identifies every redistributed component and its
-licence. Only Depth Anything V2 Small is supported; non-commercial model
-variants are intentionally excluded.
+licence. The two embedded models are the MIT
+[ZipDepth](https://github.com/fabiotosi92/ZipDepth) Base NPU checkpoint and the
+Apache-2.0 [Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2)
+repackage from [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)
+at their pinned revisions.
+Each ONNX payload is generated by the committed exporter and verified by
+SHA-256 before inference.
 
-## Limitations
+### Limitations
 
-DepthGen independently estimates each frame. This is correct for AE’s
-arbitrary-order renderer but does not eliminate temporal flicker in difficult
-shots. Use keyframed levels or a downstream temporal workflow where stability
-is more important than deterministic independent frames.
+Each frame is inferred independently. **Temporal Stability** then optionally
+smooths the Far/Near mapping range and piecewise-matches the histogram
+(including midtones). It does not mix neighbouring pixels or previous-frame
+silhouettes. Multi-Frame Rendering and random-access preview may miss the
+previous sample on the first pass. Scene cuts reset the range. Remaining
+per-pixel speckle can still be handled with a downstream temporal workflow.
+
+---
+
+## 日本語
+
+**現在のプラグインバージョン: 1.0.0（リリース）**
+
+DepthGen は、ソースレイヤーから **相対深度** マップを生成する After Effects
+エフェクトです。**モデル** ポップアップで
+[ZipDepth](https://github.com/fabiotosi92/ZipDepth) Base NPU（速度優先）または
+[Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2) Small
+（品質優先）を選びます。初期設定では白が近景、黒が遠景です。
+
+両 ONNX は実行バイナリに埋め込みます。ZipDepth は MIT の NPU チェックポイントから
+生成した IR v8 / opset 17 グラフ（`[0,1]` planar RGB、32 px 境界）です。
+Depth Anything V2 Small は Apache-2.0 の DirectML 向け再パッケージ
+（[fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)、
+ImageNet 正規化、14 px 境界）です。推論は CUDA、DirectML、Core ML、CPU の順に
+試します。詳細は
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#日本語) を参照してください。
+
+単一画像だけから実距離を保証することはできないため、用途はコンポジット、深度
+マット、深度対応エフェクトです。メートル単位の距離や時間追跡は提供しません。
+
+### 主な機能
+
+- 任意順・Multi-Frame Rendering 対応の決定論的なフレーム単位 SmartFX レンダー
+- 8/16/32-bpc 出力とソース alpha の保持
+- モデルごとの Fast / Balanced / High 推論サイズ（ZipDepth 512/768/1080、Depth Anything V2 Small 384/518/736）と 256–2160px の Custom
+- モデル切替: ZipDepth（速度優先）または Depth Anything V2 Small（品質優先）
+- 遠景／近景 percentile、コントラスト、反転、時間安定、sRGB／リニア入力、alpha-aware levels
+- 対応ランタイムでは CUDA、DirectML、Core ML を順に試し、失敗時は次のプロバイダー、最後に CPU へフォールバック
+- 英語、日本語、簡体字中国語、韓国語の UI
+
+### インストール
+
+検証済みの ZipDepth と Depth Anything V2 Small の ONNX はプラグイン実行バイナリに
+埋め込まれています。Windows では `DepthGen.aex` だけを AE の Plug-ins フォルダへ
+コピーしてください。ONNX Runtime は埋め込み済みで、初回実行時に LocalAppData へ
+展開されます。macOS の `DepthGen.plugin` には両モデルとランタイム framework が
+含まれるため、bundle 全体をコピーします。インストール後に AE を再起動してください。
+
+Windows:
+
+```text
+C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Plug-ins\
+```
+
+macOS:
+
+```text
+/Applications/Adobe After Effects <version>/Plug-ins/
+```
+
+### 操作
+
+| パラメータ | 説明 |
+| --- | --- |
+| モデル | ZipDepth（速度優先）または Depth Anything V2 Small（品質優先）。 |
+| 品質 | Fast / Balanced / High の短辺はモデルで異なります。ZipDepth は 512 / 768 / 1080 px、Depth Anything V2 Small は 384 / 518 / 736 px。カスタムはどちらも 256–2160 px。ラベルのピクセル数はフル解像度の推論短辺で、プレビュー解像度を下げると自動的に縮小されます。ZipDepth は 32 px、Depth Anything V2 Small は 14 px 境界へ切り上げます。 |
+| 遠景クリップ / 近景クリップ | 黒／白へ割り当てる robust percentile。既定は 2% と 98%。 |
+| コントラスト | 正規化後のコントラスト。`1.0` が中立。 |
+| 深度を反転 | 白近景の向きを反転します。 |
+| 時間安定 | 0–100（既定 0 でオフ）。Far/Near のマッピング端点を時間方向に平滑化し、中央値を含む深度ヒストグラムを区分線形で前フレームに合わせます。画素は混ぜないため、動く輪郭の残像は出ません。 |
+| 詳細設定 | カスタム短辺、入力トランスファー（`sRGB として扱う` / `リニアから sRGB`）、レベルにアルファを使用、アルファしきい値、出力アルファ（`ソースアルファを保持` / `不透明`）を格納するグループです。 |
+
+### ビルド、モデル、ライセンス
+
+[docs/BUILD.md](docs/BUILD.md#日本語)、[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#日本語)、
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md#日本語) を参照してください。
+ソースリポジトリにはモデル重みとランタイムバイナリを含めていません。
+`THIRD_PARTY_NOTICES.md` に再配布コンポーネントとライセンスを記載しています。
+埋め込みモデルは、固定リビジョンの MIT
+[ZipDepth](https://github.com/fabiotosi92/ZipDepth) Base NPU と Apache-2.0 の
+[Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2)
+（ONNX は [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)）
+です。配布 ONNX はコミット済み exporter で生成し、
+推論前に SHA-256 を検証します。
+
+### 制限事項
+
+各フレームは独立に推論されます。**時間安定** は Far/Near のマッピング端点を
+平滑化し、中央値を含むヒストグラムを区分線形で合わせます。画素は混ぜません。
+Multi-Frame Rendering やランダムなフレームアクセスでは初回に前サンプルが無く、
+そのフレームは補正しません。シーンカットではレンジをリセットします。
+画素単位のスペックルは下流の時間処理で扱ってください。
+
+---
+
+## 中文
+
+**当前插件版本：1.0.0（正式版）**
+
+DepthGen 是一个 After Effects 效果，可从源图层生成 **相对深度** 图。
+**模型** 弹出菜单可选择 [ZipDepth](https://github.com/fabiotosi92/ZipDepth)
+Base NPU（速度优先）或 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)
+Small（质量优先）。默认情况下白色表示较近、黑色表示较远。
+
+两个 ONNX 均嵌入可执行文件。ZipDepth 为 MIT NPU 检查点的 IR v8 / opset 17 图
+（`[0,1]` 平面 RGB，32 像素对齐）。Depth Anything V2 Small 为 Apache-2.0 的
+DirectML 再封装（来自 [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)，
+ImageNet 归一化，14 像素对齐）。推理依次尝试 CUDA、DirectML、
+Core ML，然后 CPU。详见
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#中文)。
+
+它适用于合成、深度遮罩和深度感知效果，并不保证真实世界的米制距离或时间跟踪。
+
+### 功能
+
+- 与任意帧顺序和 Multi-Frame Rendering 兼容的确定性逐帧 SmartFX 渲染
+- 8/16/32-bpc 输出并保留源 Alpha
+- 按模型区分的 Fast / Balanced / High 推理尺寸（ZipDepth 512/768/1080，Depth Anything V2 Small 384/518/736）以及 256–2160px 自定义
+- 模型切换：ZipDepth（速度优先）或 Depth Anything V2 Small（质量优先）
+- 远近百分位映射、对比度、深度反转、时间稳定、sRGB/线性输入和 Alpha-aware levels
+- 已编译支持时依次尝试 CUDA、DirectML、Core ML，失败则回退到下一提供程序，最后为 CPU
+- 英语、日语、简体中文和韩语控件
+
+### 安装
+
+经过验证的 ZipDepth 与 Depth Anything V2 Small ONNX 已嵌入插件可执行文件。Windows 上只需将
+`DepthGen.aex` 复制到 After Effects 插件文件夹；ONNX Runtime 已嵌入，首次运行时会释放到
+LocalAppData。macOS 的 `DepthGen.plugin` 已包含两个模型和运行时 framework，请复制完整
+bundle。安装后重启 After Effects。
+
+Windows:
+
+```text
+C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Plug-ins\
+```
+
+macOS:
+
+```text
+/Applications/Adobe After Effects <version>/Plug-ins/
+```
+
+### 控件
+
+| 控件 | 含义 |
+| --- | --- |
+| 模型 | ZipDepth（速度优先）或 Depth Anything V2 Small（质量优先）。 |
+| 质量 | Fast / Balanced / High 的短边随模型变化：ZipDepth 为 512 / 768 / 1080 px，Depth Anything V2 Small 为 384 / 518 / 736 px。自定义两者均为 256–2160 px。标注的像素数是全分辨率推理短边；降低预览分辨率时会自动缩放。ZipDepth 向上对齐到 32 px，Depth Anything V2 Small 对齐到 14 px。 |
+| 远景裁剪 / 近景裁剪 | 映射到黑/白的 robust 百分位。默认 2% 和 98%。 |
+| 对比度 | 归一化后的对比度；`1.0` 为中性。 |
+| 反转深度 | 反转白近黑远的默认方向。 |
+| 时间稳定 | 0–100（默认 0，关闭）。平滑 Far/Near 映射端点，并用分段线性把深度直方图（含中间调）对齐到上一帧。不混合像素，因此运动边缘不会残影。 |
+| 高级 | 包含自定义短边、输入传递函数（`假定 sRGB` / `线性转 sRGB`）、使用 Alpha 计算层级、Alpha 阈值、输出 Alpha（`保留源 Alpha` / `不透明`）的分组。 |
+
+### 构建、模型与许可
+
+请参阅 [docs/BUILD.md](docs/BUILD.md#中文)、[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#中文)
+和 [docs/BENCHMARKS.md](docs/BENCHMARKS.md#中文)。
+源代码仓库有意不包含模型权重和运行时二进制文件。
+`THIRD_PARTY_NOTICES.md` 列出所有再分发组件及其许可。
+嵌入的两个模型是固定版本的 MIT [ZipDepth](https://github.com/fabiotosi92/ZipDepth)
+Base NPU 与 Apache-2.0 [Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2)
+（ONNX 来自 [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX)）。
+发行用 ONNX 由仓库中的导出工具生成，并在推理前通过 SHA-256 验证。
+
+### 限制
+
+每一帧独立推理。**时间稳定** 会平滑 Far/Near 映射端点，并用分段线性对齐直方图
+（含中间调），不混合像素。Multi-Frame Rendering 或随机访问预览时，首次可能找不到
+上一帧。镜头切换会重置范围。像素级斑点仍可用下游时间处理。
+
+---
+
+## 한국어
+
+**현재 플러그인 버전: 1.0.0(릴리스)**
+
+DepthGen은 소스 레이어에서 **상대 깊이** 맵을 만드는 After Effects 효과입니다.
+**모델** 팝업에서 [ZipDepth](https://github.com/fabiotosi92/ZipDepth) Base NPU
+(속도 우선) 또는 [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)
+Small(품질 우선)을 선택합니다. 기본값은 흰색이 가까움, 검은색이 멂입니다.
+
+두 ONNX는 실행 파일에 내장됩니다. ZipDepth는 MIT NPU 체크포인트의 IR v8 / opset 17
+그래프(`[0,1]` planar RGB, 32픽셀 정렬)입니다. Depth Anything V2 Small은 Apache-2.0
+DirectML 재패키지([fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX),
+ImageNet 정규화, 14픽셀 정렬)입니다. 추론은 CUDA, DirectML, Core ML,
+CPU 순으로 시도합니다. 자세한 내용은
+[docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#한국어)를 참조하십시오.
+
+합성, 깊이 매트 및 깊이 인식 효과를 위한 도구이며 실제 거리나 시간 추적을 보장하지
+않습니다.
+
+### 기능
+
+- 임의 프레임 순서와 Multi-Frame Rendering에 호환되는 결정적 프레임별 SmartFX 렌더링
+- 소스 알파를 보존하는 8/16/32-bpc 출력
+- 모델별 Fast / Balanced / High 추론 크기(ZipDepth 512/768/1080, Depth Anything V2 Small 384/518/736)와 256–2160px 사용자 지정
+- 모델 전환: ZipDepth(속도 우선) 또는 Depth Anything V2 Small(품질 우선)
+- 원근 percentile, 대비, 깊이 반전, 시간 안정성, sRGB/선형 입력 및 alpha-aware levels
+- 컴파일된 런타임에서 CUDA, DirectML, Core ML을 순서대로 시도하고 실패 시 다음 제공자, 마지막에 CPU로 대체
+- 영어, 일본어, 중국어 간체, 한국어 컨트롤
+
+### 설치
+
+검증된 ZipDepth와 Depth Anything V2 Small ONNX는 플러그인 실행 파일에 내장됩니다. Windows에서는
+`DepthGen.aex`만 After Effects 플러그인 폴더에 복사하십시오. ONNX Runtime은 내장되어 있으며
+첫 실행 시 LocalAppData로 풀립니다. macOS의 `DepthGen.plugin`에는 두 모델과 런타임 framework가
+모두 포함되므로 bundle 전체를 복사합니다. 설치 후 After Effects를 다시 시작하십시오.
+
+Windows:
+
+```text
+C:\Program Files\Adobe\Adobe After Effects <version>\Support Files\Plug-ins\
+```
+
+macOS:
+
+```text
+/Applications/Adobe After Effects <version>/Plug-ins/
+```
+
+### 컨트롤
+
+| 컨트롤 | 의미 |
+| --- | --- |
+| 모델 | ZipDepth(속도 우선) 또는 Depth Anything V2 Small(품질 우선). |
+| 품질 | Fast / Balanced / High 짧은 변은 모델에 따라 다릅니다. ZipDepth는 512 / 768 / 1080 px, Depth Anything V2 Small은 384 / 518 / 736 px입니다. 사용자 지정은 둘 다 256–2160 px입니다. 표시된 픽셀 수는 전체 해상도 추론 짧은 변이며, 미리보기 해상도를 낮추면 자동으로 축소됩니다. ZipDepth는 32 px, Depth Anything V2 Small은 14 px 경계로 올림합니다. |
+| 원거리 클립 / 근거리 클립 | 검정/흰색에 매핑되는 robust percentile. 기본값 2%와 98%. |
+| 대비 | 정규화 후 대비. `1.0`이 중립입니다. |
+| 깊이 반전 | 흰색-가까움 방향을 반전합니다. |
+| 시간 안정성 | 0–100(기본값 0, 꺼짐). Far/Near 매핑 끝점을 시간 방향으로 부드럽게 하고, 중간값을 포함한 깊이 히스토그램을 구간 선형으로 이전 프레임에 맞춥니다. 픽셀은 섞지 않으므로 움직이는 윤곽에 잔상이 생기지 않습니다. |
+| 고급 | 사용자 지정 짧은 변, 입력 전달 함수(`sRGB로 간주` / `선형에서 sRGB`), 레벨에 알파 사용, 알파 임계값, 출력 알파(`소스 알파 유지` / `불투명`)를 담는 그룹입니다. |
+
+### 빌드, 모델 및 라이선스
+
+[docs/BUILD.md](docs/BUILD.md#한국어), [docs/MODEL_PROVENANCE.md](docs/MODEL_PROVENANCE.md#한국어),
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md#한국어)를 참조하십시오.
+소스 저장소에는 모델 가중치와 런타임 바이너리를 포함하지 않습니다.
+`THIRD_PARTY_NOTICES.md`에 재배포 구성 요소와 라이선스를 기재했습니다.
+내장 모델은 고정 리비전의 MIT [ZipDepth](https://github.com/fabiotosi92/ZipDepth)
+Base NPU와 Apache-2.0 [Depth Anything V2 Small](https://github.com/DepthAnything/Depth-Anything-V2)
+(ONNX는 [fabio-sim/Depth-Anything-ONNX](https://github.com/fabio-sim/Depth-Anything-ONNX))입니다.
+배포 ONNX는 커밋된 exporter로 생성하며 추론 전에 SHA-256을 검증합니다.
+
+### 제한 사항
+
+각 프레임은 독립적으로 추론됩니다. **시간 안정성**은 Far/Near 매핑 끝점을 부드럽게
+하고 중간값을 포함한 히스토그램을 구간 선형으로 맞추며, 픽셀은 섞지 않습니다.
+Multi-Frame Rendering이나 임의 프레임 접근에서는 첫 패스에 이전 샘플이 없을 수
+있습니다. 장면 전환에서는 범위를 재설정합니다. 픽셀 단위 스페클은 하류 시간 처리로
+다루십시오.
