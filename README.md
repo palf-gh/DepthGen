@@ -41,10 +41,10 @@ metric depth or temporal tracking.
 ### Installation
 
 The verified ZipDepth and Depth Anything V2 Small ONNX graphs are embedded in
-the plug-in executable. On Windows, keep the bundled ONNX Runtime DLLs beside
-`DepthGen.aex` and copy the complete release directory into the After Effects
-plug-ins folder. On macOS, `DepthGen.plugin` contains both models and runtime
-frameworks; copy the complete bundle. Restart After Effects after installation.
+the plug-in executable. On Windows, copy `DepthGen.aex` into the After Effects
+plug-ins folder; ONNX Runtime is embedded and extracted to LocalAppData on first
+use. On macOS, `DepthGen.plugin` contains both models and runtime frameworks;
+copy the complete bundle. Restart After Effects after installation.
 
 Windows:
 
@@ -124,10 +124,10 @@ Depth Anything V2 Small は Apache-2.0 の DirectML 向け再パッケージ
 ### インストール
 
 検証済みの ZipDepth と Depth Anything V2 Small の ONNX はプラグイン実行バイナリに
-埋め込まれています。Windows では同梱の ONNX Runtime DLL を `DepthGen.aex` と同じ
-場所に保ち、配布ディレクトリ全体を AE の Plug-ins フォルダへコピーしてください。
-macOS の `DepthGen.plugin` には両モデルとランタイム framework が含まれるため、
-bundle 全体をコピーします。インストール後に AE を再起動してください。
+埋め込まれています。Windows では `DepthGen.aex` だけを AE の Plug-ins フォルダへ
+コピーしてください。ONNX Runtime は埋め込み済みで、初回実行時に LocalAppData へ
+展開されます。macOS の `DepthGen.plugin` には両モデルとランタイム framework が
+含まれるため、bundle 全体をコピーします。インストール後に AE を再起動してください。
 
 Windows:
 
@@ -201,10 +201,10 @@ Core ML，然后 CPU。详见
 
 ### 安装
 
-经过验证的 ZipDepth 与 Depth Anything V2 Small ONNX 已嵌入插件可执行文件。Windows 上请将随附的 ONNX Runtime
-DLL 与 `DepthGen.aex` 保持在同一目录，并将完整发行目录复制到 After Effects 插件文件夹。
-macOS 的 `DepthGen.plugin` 已包含两个模型和运行时 framework，请复制完整 bundle。
-安装后重启 After Effects。
+经过验证的 ZipDepth 与 Depth Anything V2 Small ONNX 已嵌入插件可执行文件。Windows 上只需将
+`DepthGen.aex` 复制到 After Effects 插件文件夹；ONNX Runtime 已嵌入，首次运行时会释放到
+LocalAppData。macOS 的 `DepthGen.plugin` 已包含两个模型和运行时 framework，请复制完整
+bundle。安装后重启 After Effects。
 
 Windows:
 
@@ -276,9 +276,9 @@ CPU 순으로 시도합니다. 자세한 내용은
 
 ### 설치
 
-검증된 ZipDepth와 Depth Anything V2 Small ONNX는 플러그인 실행 파일에 내장됩니다. Windows에서는 동봉된
-ONNX Runtime DLL을 `DepthGen.aex`와 같은 위치에 두고 전체 배포 디렉터리를 After Effects
-플러그인 폴더에 복사하십시오. macOS의 `DepthGen.plugin`에는 두 모델과 런타임 framework가
+검증된 ZipDepth와 Depth Anything V2 Small ONNX는 플러그인 실행 파일에 내장됩니다. Windows에서는
+`DepthGen.aex`만 After Effects 플러그인 폴더에 복사하십시오. ONNX Runtime은 내장되어 있으며
+첫 실행 시 LocalAppData로 풀립니다. macOS의 `DepthGen.plugin`에는 두 모델과 런타임 framework가
 모두 포함되므로 bundle 전체를 복사합니다. 설치 후 After Effects를 다시 시작하십시오.
 
 Windows:

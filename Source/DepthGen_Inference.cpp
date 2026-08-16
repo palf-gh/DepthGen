@@ -15,6 +15,7 @@
 #include <sstream>
 
 #if defined(DEPTHGEN_HAS_ORT)
+#include "DepthGen_OrtHost.h"
 #include <onnxruntime_cxx_api.h>
 #if defined(DEPTHGEN_ORT_DML)
 #if __has_include(<dml_provider_factory.h>)
@@ -511,6 +512,9 @@ bool InferDepth(
 		return false;
 	}
 #if defined(DEPTHGEN_HAS_ORT)
+	if (!EnsureOnnxRuntimeLoaded(error)) {
+		return false;
+	}
 #if defined(DEPTHGEN_ORT_CUDA)
 	static Runtime* runtime = new Runtime();
 	return runtime->Infer(nchw_rgb, width, height, model, result, provider, error, preference);

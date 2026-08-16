@@ -56,6 +56,8 @@ set(DEPTHGEN_SOURCES
   Source/DepthGen_ModelIntegrity.cpp
   Source/DepthGen_Inference.h
   Source/DepthGen_Inference.cpp
+  Source/DepthGen_OrtHost.h
+  Source/DepthGen_OrtHost.cpp
   Localise/DepthGenStrings.h
   "${AESDK_ROOT}/Util/AEGP_SuiteHandler.cpp"
   "${AESDK_ROOT}/Util/MissingSuiteError.cpp"
@@ -69,7 +71,8 @@ target_include_directories(DepthGen PRIVATE
   "${AESDK_ROOT}/Util"
   "${AESDK_ROOT}/Resources"
   "${CMAKE_CURRENT_SOURCE_DIR}"
-  "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+  "${CMAKE_CURRENT_SOURCE_DIR}/Source"
+  "${CMAKE_CURRENT_BINARY_DIR}")
 target_compile_definitions(DepthGen PRIVATE
   $<$<CONFIG:Debug>:DEPTHGEN_DEBUG_BUILD=1>
   _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR
@@ -91,6 +94,10 @@ if(DEPTHGEN_ENABLE_ONNX_RUNTIME AND DEPTHGEN_ORT_ROOT)
     set(DEPTHGEN_HAS_ORT TRUE)
     target_include_directories(DepthGen PRIVATE "${DEPTHGEN_ORT_INCLUDE_DIR}")
     target_link_libraries(DepthGen PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
+    if(WIN32 AND MSVC)
+      target_link_libraries(DepthGen PRIVATE delayimp)
+      target_link_options(DepthGen PRIVATE "/DELAYLOAD:onnxruntime.dll")
+    endif()
     target_compile_definitions(DepthGen PRIVATE DEPTHGEN_HAS_ORT=1 DEPTHGEN_EMBEDDED_MODEL=1)
     if(TARGET depthgen_build_model)
       add_dependencies(DepthGen depthgen_build_model)
@@ -165,9 +172,8 @@ if(DEPTHGEN_HAS_ORT)
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_RUNTIME_DESTINATION=$<TARGET_FILE_DIR:DepthGen>
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
-        "$<TARGET_FILE_DIR:DepthGen>"
-      COMMENT "Copying ONNX Runtime beside DepthGen.aex")
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf "$<TARGET_FILE_DIR:DepthGen>/Resources"
+      COMMENT "Removing sidecar ONNX Runtime DLLs and model folders beside DepthGen.aex")
   elseif(APPLE)
     add_custom_command(TARGET DepthGen POST_BUILD
       COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:DepthGen>/Contents/Frameworks"
@@ -184,19 +190,26 @@ if(WIN32)
   if(DEPTHGEN_HAS_ORT)
     set(DEPTHGEN_ZIPDEPTH_MODEL_PATH_NATIVE "${DEPTHGEN_ZIPDEPTH_MODEL_PATH}")
     set(DEPTHGEN_DAV2_MODEL_PATH_NATIVE "${DEPTHGEN_DAV2_MODEL_PATH}")
+    get_filename_component(_depthgen_ort_lib_dir "${DEPTHGEN_ORT_LIBRARY}" DIRECTORY)
+    if(EXISTS "${_depthgen_ort_lib_dir}/onnxruntime.dll")
+      set(DEPTHGEN_ORT_DLL "${_depthgen_ort_lib_dir}/onnxruntime.dll")
+    elseif(EXISTS "${DEPTHGEN_ORT_ROOT}/lib/onnxruntime.dll")
+      set(DEPTHGEN_ORT_DLL "${DEPTHGEN_ORT_ROOT}/lib/onnxruntime.dll")
+    else()
+      message(FATAL_ERROR "onnxruntime.dll was not found next to ${DEPTHGEN_ORT_LIBRARY}.")
+    endif()
+    file(SHA256 "${DEPTHGEN_ORT_DLL}" DEPTHGEN_ORT_DLL_SHA256)
+    # rc.exe treats backslashes as escapes; keep CMake forward slashes.
+    set(DEPTHGEN_ORT_DLL_NATIVE "${DEPTHGEN_ORT_DLL}")
+    configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DepthGenOrtEmbed.h.in"
+      "${CMAKE_CURRENT_BINARY_DIR}/DepthGenOrtEmbed.h" @ONLY)
     set(DEPTHGEN_MODEL_RC "${CMAKE_CURRENT_BINARY_DIR}/DepthGenModel.rc")
     configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cmake/DepthGenModel.rc.in"
       "${DEPTHGEN_MODEL_RC}" @ONLY)
     set_source_files_properties("${DEPTHGEN_MODEL_RC}" PROPERTIES
-      OBJECT_DEPENDS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH};${DEPTHGEN_DAV2_MODEL_PATH}")
+      OBJECT_DEPENDS "${DEPTHGEN_ZIPDEPTH_MODEL_PATH};${DEPTHGEN_DAV2_MODEL_PATH};${DEPTHGEN_ORT_DLL}")
     target_sources(DepthGen PRIVATE "${DEPTHGEN_MODEL_RC}")
   endif()
-  add_custom_command(TARGET DepthGen POST_BUILD
-    COMMAND "${CMAKE_COMMAND}"
-      -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
-      -DDEPTHGEN_MODELS_DESTINATION=$<TARGET_FILE_DIR:DepthGen>/Resources/Models
-      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
-    COMMENT "Copying the DepthGen model manifest beside DepthGen.aex")
 elseif(APPLE)
   add_custom_command(TARGET DepthGen POST_BUILD
     COMMAND "${CMAKE_COMMAND}"
@@ -368,7 +381,6 @@ if(DEPTHGEN_PACKAGE_RELEASE)
         "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
         "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/README.md"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models/model-manifest.json"
 		${DEPTHGEN_ORT_NOTICE_FILES}
         "${DEPTHGEN_PACKAGE_ROOT}/"
       COMMAND "${CMAKE_COMMAND}" -E copy_directory
@@ -382,12 +394,7 @@ if(DEPTHGEN_PACKAGE_RELEASE)
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_RUNTIME_DESTINATION=${DEPTHGEN_PACKAGE_PLATFORM_DIR}
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/clean_onnxruntime.cmake"
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${DEPTHGEN_ORT_RUNTIME_FILES}
-        "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/"
-      COMMAND "${CMAKE_COMMAND}"
-        -DDEPTHGEN_MODELS_SOURCE=${CMAKE_CURRENT_SOURCE_DIR}/Resources/Models
-        -DDEPTHGEN_MODELS_DESTINATION=${DEPTHGEN_PACKAGE_MODEL_DIR}
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_model_assets.cmake"
+      COMMAND "${CMAKE_COMMAND}" -E rm -rf "${DEPTHGEN_PACKAGE_PLATFORM_DIR}/Resources"
       COMMAND "${CMAKE_COMMAND}"
         -DDEPTHGEN_PACKAGE_ROOT=${DEPTHGEN_PACKAGE_ROOT}
         -DDEPTHGEN_PACKAGE_NAME=${CMAKE_CURRENT_BINARY_DIR}/package/DepthGen-$<CONFIG>-Windows.zip
@@ -475,9 +482,10 @@ if(DEPTHGEN_BUILD_TESTS)
     add_executable(depthgen_model_smoke
       tests/DepthGenModelSmoke.cpp
       Source/DepthGen_Inference.cpp
+      Source/DepthGen_OrtHost.cpp
       Source/DepthGen_ModelIntegrity.cpp)
     target_include_directories(depthgen_model_smoke PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(depthgen_model_smoke PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
     target_compile_definitions(depthgen_model_smoke PRIVATE DEPTHGEN_HAS_ORT=1 _CRT_SECURE_NO_WARNINGS
       ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
@@ -502,9 +510,10 @@ if(DEPTHGEN_BUILD_TESTS)
       tests/DepthGenModelSmoke.cpp
       Source/DepthGen_EmbeddedModel.cpp
       Source/DepthGen_Inference.cpp
+      Source/DepthGen_OrtHost.cpp
       Source/DepthGen_ModelIntegrity.cpp)
     target_include_directories(depthgen_embedded_model_smoke PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(depthgen_embedded_model_smoke PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
     target_compile_definitions(depthgen_embedded_model_smoke PRIVATE
       DEPTHGEN_HAS_ORT=1 DEPTHGEN_EMBEDDED_MODEL=1 _CRT_SECURE_NO_WARNINGS
@@ -533,9 +542,10 @@ if(DEPTHGEN_BUILD_TESTS)
       add_executable(depthgen_provider_parity
         tests/DepthGenProviderParity.cpp
         Source/DepthGen_Inference.cpp
+        Source/DepthGen_OrtHost.cpp
         Source/DepthGen_ModelIntegrity.cpp)
       target_include_directories(depthgen_provider_parity PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
       target_link_libraries(depthgen_provider_parity PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
       target_compile_definitions(depthgen_provider_parity PRIVATE DEPTHGEN_HAS_ORT=1 DEPTHGEN_TESTING=1 _CRT_SECURE_NO_WARNINGS
         ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
@@ -553,9 +563,10 @@ if(DEPTHGEN_BUILD_TESTS)
       add_executable(depthgen_provider_fallback
         tests/DepthGenProviderFallback.cpp
         Source/DepthGen_Inference.cpp
+        Source/DepthGen_OrtHost.cpp
         Source/DepthGen_ModelIntegrity.cpp)
       target_include_directories(depthgen_provider_fallback PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+        "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
       target_link_libraries(depthgen_provider_fallback PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
       target_compile_definitions(depthgen_provider_fallback PRIVATE DEPTHGEN_HAS_ORT=1 DEPTHGEN_TESTING=1 _CRT_SECURE_NO_WARNINGS
         ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
@@ -576,9 +587,10 @@ if(DEPTHGEN_BUILD_TESTS)
       tests/DepthGenBenchmark.cpp
       Source/DepthGen_Image.cpp
       Source/DepthGen_Inference.cpp
+      Source/DepthGen_OrtHost.cpp
       Source/DepthGen_ModelIntegrity.cpp)
     target_include_directories(depthgen_benchmark PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(depthgen_benchmark PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
     target_compile_definitions(depthgen_benchmark PRIVATE DEPTHGEN_HAS_ORT=1 _CRT_SECURE_NO_WARNINGS
       ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})
@@ -595,9 +607,10 @@ if(DEPTHGEN_BUILD_TESTS)
     add_executable(depthgen_model_validation
       tests/DepthGenModelValidation.cpp
       Source/DepthGen_Inference.cpp
+      Source/DepthGen_OrtHost.cpp
       Source/DepthGen_ModelIntegrity.cpp)
     target_include_directories(depthgen_model_validation PRIVATE
-      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}")
+      "${CMAKE_CURRENT_SOURCE_DIR}/Source" "${DEPTHGEN_ORT_INCLUDE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}")
     target_link_libraries(depthgen_model_validation PRIVATE "${DEPTHGEN_ORT_LIBRARY}")
     target_compile_definitions(depthgen_model_validation PRIVATE DEPTHGEN_HAS_ORT=1 _CRT_SECURE_NO_WARNINGS
       ${DEPTHGEN_ORT_PROVIDER_DEFINITIONS})

@@ -53,8 +53,12 @@ Adobe After Effects SDK Examples tree and the third-party assets documented in
   downloaded archives, or `dist/` plug-in outputs. CMake still writes host
   plug-ins to `dist/Win/<Config>/` and `dist/Mac/<Config>/` locally. Embedded
   models make Release binaries exceed GitHub's 100 MB blob limit, so ship them
-  via GitHub Releases, not Git. CMake embeds both verified ONNX payloads and
-  removes sidecar model files.
+  via GitHub Releases, not Git. CMake embeds both verified ONNX payloads and the
+  Windows `onnxruntime.dll`, which is delay-loaded from LocalAppData after first
+  extract. Do not leave a sidecar DLL beside `DepthGen.aex`. macOS still embeds
+  the runtime inside `DepthGen.plugin/Contents/Frameworks`. CUDA provider DLLs,
+  when compiled in, remain extra files and are not part of the single-`.aex`
+  layout.
 - CUDA, DirectML, and Core ML are compiled in whenever the configured ORT SDK
   exports them. At runtime the plug-in tries CUDA, then DirectML, then Core ML
   NeuralNetwork, then Core ML MLProgram (when the header provides

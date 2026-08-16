@@ -96,8 +96,12 @@ The build embeds the SHA-256-verified
 `zipdepth_base_npu_dynamic.onnx` and `depth_anything_v2_vits_dml.onnx` as Windows
 `RCDATA` resources 256/257 or read-only macOS Mach-O sections `__zipdepth` and
 `__dav2`. ONNX Runtime creates sessions directly from those bytes; release layouts
-contain no ONNX sidecar. Fetch and export both models once (the files are
-gitignored), then rebuild to relink them:
+contain no ONNX sidecar. On Windows, `onnxruntime.dll` is also embedded as
+`RCDATA` 258 and delay-loaded from `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\`
+after the first extract. The 1.0.0 Windows ship layout is a single
+`DepthGen.aex`; do not copy a sidecar DLL into Plug-ins. macOS still ships
+ONNX Runtime inside `DepthGen.plugin/Contents/Frameworks`. Fetch and export both
+models once (the files are gitignored), then rebuild to relink them:
 
 ```powershell
 cmake --build build/Win --target depthgen_build_model
@@ -124,7 +128,9 @@ maps within a documented tolerance; test 8/16/32-bpc alpha handling and
 arbitrary MFR frame order; and record warm-up p50/p95 figures for 1080p at
 Fast, Balanced, and High quality. Sign the final
 macOS bundle only after the embedded model, runtime frameworks, PiPL, and
-notices are present, then run `codesign --verify --deep --strict`.
+notices are present, then run `codesign --verify --deep --strict`. The Windows
+release asset is the standalone `DepthGen.aex` (models and ONNX Runtime
+embedded); CUDA provider DLLs are not part of that layout.
 
 ---
 
@@ -210,7 +216,11 @@ $env:DEPTHGEN_MODEL_PATH = 'C:\verified\zipdepth_base_npu_dynamic.onnx'
 `Resources/Models/zipdepth_base_npu_dynamic.onnx` を Windows `RCDATA`
 リソース、または読み取り専用の macOS Mach-O セクションへ埋め込みます。
 ONNX Runtime はそのバイトから直接セッションを作成し、リリース配置に ONNX
-サイドカーはありません。ピンした ZipDepth のソース／チェックポイントを取得し、
+サイドカーはありません。Windows では `onnxruntime.dll` も `RCDATA` 258 として
+埋め込み、初回実行時に `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\` へ展開して
+delay-load します。1.0.0 の Windows 配布物は単体の `DepthGen.aex` です。
+Plug-ins に DLL を並べて置かないでください。macOS は従来どおり
+`DepthGen.plugin/Contents/Frameworks` にランタイムを同梱します。ピンした ZipDepth のソース／チェックポイントを取得し、
 動的 ONNX を一度エクスポートしてから（モデルファイルは gitignore）、再ビルド
 して再リンクします:
 
@@ -316,7 +326,10 @@ SHA-256 和发行修订一并保存。公开发布门槛要求同一台机器上
 构建会将通过 SHA-256 验证的
 `Resources/Models/zipdepth_base_npu_dynamic.onnx` 嵌入 Windows `RCDATA`
 资源或只读 macOS Mach-O 段。ONNX Runtime 直接从这些字节创建会话；发行布局
-不含 ONNX sidecar。获取固定的 ZipDepth 源码/检查点并导出一次动态 ONNX
+不含 ONNX sidecar。Windows 还将 `onnxruntime.dll` 作为 `RCDATA` 258 嵌入，首次
+运行时释放到 `%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\` 再 delay-load。1.0.0
+的 Windows 交付物是单独的 `DepthGen.aex`，请勿在 Plug-ins 旁放置 sidecar DLL。
+macOS 仍将运行时放在 `DepthGen.plugin/Contents/Frameworks`。获取固定的 ZipDepth 源码/检查点并导出一次动态 ONNX
 （模型文件被 gitignore），然后重新构建以重新链接：
 
 ```powershell
@@ -422,7 +435,11 @@ SHA-256, 릴리스 리비전과 함께 보관합니다. 공개 릴리스 게이�
 빌드는 SHA-256으로 검증된
 `Resources/Models/zipdepth_base_npu_dynamic.onnx`를 Windows `RCDATA` 리소스
 또는 읽기 전용 macOS Mach-O 섹션에 내장합니다. ONNX Runtime은 그 바이트에서
-바로 세션을 만들고, 릴리스 배치에는 ONNX sidecar가 없습니다. 고정한 ZipDepth
+바로 세션을 만들고, 릴리스 배치에는 ONNX sidecar가 없습니다. Windows에서는
+`onnxruntime.dll`도 `RCDATA` 258로 내장하고, 첫 실행 시
+`%LOCALAPPDATA%\PALF\DepthGen\onnxruntime\`에 풀어 delay-load합니다. 1.0.0
+Windows 배포물은 단독 `DepthGen.aex`이며 Plug-ins 옆에 DLL을 두지 마십시오.
+macOS는 계속 `DepthGen.plugin/Contents/Frameworks`에 런타임을 넣습니다. 고정한 ZipDepth
 소스/체크포인트를 가져와 동적 ONNX를 한 번 내보낸 뒤(모델 파일은 gitignore),
 다시 빌드해 다시 링크합니다:
 
