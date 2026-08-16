@@ -34,9 +34,6 @@ PF_Err DepthGen_UpdateParamsUI(
 		updated.u.pd.u.namesptr = quality_items;
 		err = suites.ParamUtilsSuite3()->PF_UpdateParamUI(
 			in_data->effect_ref, quality_index, &updated);
-		if (!err) {
-			params[quality_index]->u.pd.u.namesptr = quality_items;
-		}
 	}
 	const bool enable_custom = params[quality_index]->u.pd.value == DEPTHGEN_QUALITY_CUSTOM;
 	const bool currently_disabled = (params[custom_index]->ui_flags & PF_PUI_DISABLED) != 0;
@@ -49,9 +46,6 @@ PF_Err DepthGen_UpdateParamsUI(
 		}
 		err = suites.ParamUtilsSuite3()->PF_UpdateParamUI(
 			in_data->effect_ref, custom_index, &updated);
-		if (!err) {
-			params[custom_index]->ui_flags = updated.ui_flags;
-		}
 	}
 	(void)out_data;
 	return err;

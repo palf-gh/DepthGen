@@ -609,16 +609,10 @@ PF_Err EffectMain(
 	case PF_Cmd_GLOBAL_SETUP: return GlobalSetup(in_data, out_data);
 	case PF_Cmd_GLOBAL_SETDOWN: return GlobalSetdown(in_data);
 	case PF_Cmd_PARAMS_SETUP: return ParamsSetup(in_data, out_data);
-	case PF_Cmd_SEQUENCE_SETUP: {
-		const PF_Err err = SequenceSetup(in_data, out_data);
-		return err ? err : DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	}
+	case PF_Cmd_SEQUENCE_SETUP: return SequenceSetup(in_data, out_data);
 	case PF_Cmd_SEQUENCE_SETDOWN: return SequenceSetdown(in_data, out_data);
 	case PF_Cmd_SEQUENCE_FLATTEN: return SequenceFlatten(in_data, out_data);
-	case PF_Cmd_SEQUENCE_RESETUP: {
-		const PF_Err err = SequenceResetup(in_data, out_data);
-		return err ? err : DepthGen_UpdateParamsUI(in_data, out_data, params, output);
-	}
+	case PF_Cmd_SEQUENCE_RESETUP: return SequenceResetup(in_data, out_data);
 	case PF_Cmd_GET_FLATTENED_SEQUENCE_DATA: return GetFlattenedSequenceData(in_data, out_data);
 	case PF_Cmd_SMART_PRE_RENDER: return PreRender(in_data, reinterpret_cast<PF_PreRenderExtra*>(extra));
 	case PF_Cmd_SMART_RENDER: return SmartRender(in_data, out_data, reinterpret_cast<PF_SmartRenderExtra*>(extra));
