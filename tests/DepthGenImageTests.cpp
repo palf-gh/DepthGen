@@ -135,6 +135,28 @@ int main() {
 	depthgen::ComputeInferenceSize(1920, 1080, 518, &width, &height, depthgen::kDav2Patch);
 	Require(width == 924 && height == 518, "DAV2 Balanced landscape must use a 14-pixel patch");
 
+	// F4: kMaxInferenceLongEdge must not disturb ordinary material. Both
+	// remain below the 4096 cap (768 short edge: long edge 1376; Custom 2160
+	// upscaled from 1080p: long edge 3840), so the pre-cap formula still
+	// applies untouched.
+	depthgen::ComputeInferenceSize(1920, 1080, 768, &width, &height);
+	Require(width == 1376 && height == 768, "Balanced landscape inference size must match the pre-cap formula");
+	depthgen::ComputeInferenceSize(1920, 1080, 2160, &width, &height);
+	Require(width == 3840 && height == 2176,
+		"Custom 2160 upscaled from a 1080p source must stay under the long-edge cap");
+
+	// F4: an extreme aspect ratio (e.g. a lower-third composition layer) must
+	// have its long edge capped at kMaxInferenceLongEdge instead of scaling
+	// without limit; the short edge scales down with it, well below what the
+	// requested short edge alone would have produced.
+	depthgen::ComputeInferenceSize(1920, 64, 768, &width, &height);
+	Require(width == 4096 && height == 160, "extreme-aspect landscape must cap the long edge and stay patch-aligned");
+	depthgen::ComputeInferenceSize(64, 1920, 768, &width, &height);
+	Require(width == 160 && height == 4096, "extreme-aspect portrait must cap the long edge and stay patch-aligned");
+	depthgen::ComputeInferenceSize(1920, 64, 518, &width, &height, depthgen::kDav2Patch);
+	Require(width == 4102 && height == 140,
+		"extreme-aspect landscape with a 14-pixel patch must cap just past the long-edge limit");
+
 	// Fused inference sampler: aligned bilinear reduction straight to NCHW.
 	{
 		std::vector<PF_Pixel> pixels;

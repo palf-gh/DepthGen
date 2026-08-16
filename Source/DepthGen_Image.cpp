@@ -62,8 +62,15 @@ void ComputeInferenceSize(int source_width, int source_height, int short_edge,
 		return;
 	}
 	const int alignment = std::max(patch, 1);
-	const float scale = static_cast<float>(std::max(short_edge, alignment)) /
+	const float requested_scale = static_cast<float>(std::max(short_edge, alignment)) /
 		static_cast<float>(std::min(source_width, source_height));
+	// Bound the long edge: the short edge alone does not limit the tensor, and
+	// an extreme aspect ratio otherwise scales the long edge without limit.
+	// Patch round-up below may still push the long edge up to (patch - 1)
+	// past this cap.
+	const float long_edge_scale = static_cast<float>(kMaxInferenceLongEdge) /
+		static_cast<float>(std::max(source_width, source_height));
+	const float scale = std::min(requested_scale, long_edge_scale);
 	*out_width = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_width * scale)), alignment);
 	*out_height = RoundUpToPatchMultiple(static_cast<int>(std::lround(source_height * scale)), alignment);
 }

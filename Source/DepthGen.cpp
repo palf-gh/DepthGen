@@ -467,6 +467,18 @@ PF_Err SmartRender(PF_InData* in_data, PF_OutData* out_data, PF_SmartRenderExtra
 	return err;
 }
 
+// Polls the host for a user-requested cancellation. DepthGen_RenderWorld
+// tolerates a null in_data at other call sites, so this does too: no in_data
+// means no host to poll, and PF_Err_NONE lets the caller carry on. Otherwise
+// forwards PF_ABORT's result verbatim (non-zero, typically
+// PF_Interrupt_CANCEL, when the user has cancelled).
+PF_Err CheckAbort(PF_InData* in_data) {
+	if (!in_data) {
+		return PF_Err_NONE;
+	}
+	return PF_ABORT(in_data);
+}
+
 } // namespace
 
 PF_Err DepthGen_RenderWorld(
@@ -505,6 +517,9 @@ PF_Err DepthGen_RenderWorld(
 	if (inference_width <= 0 || inference_height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
+	}
 	std::vector<float> alpha;
 	std::vector<float> tensor;
 	switch (pixel_format) {
@@ -536,6 +551,9 @@ PF_Err DepthGen_RenderWorld(
 	std::string inference_error;
 	const depthgen::DepthModel inference_model = settings.model == DEPTHGEN_MODEL_DAV2_SMALL
 		? depthgen::DepthModel::DepthAnythingV2Small : depthgen::DepthModel::ZipDepth;
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
+	}
 	if (!depthgen::InferDepth(tensor, inference_width, inference_height, inference_model,
 		&result, &provider, &inference_error)) {
 		if (out_data && !inference_error.empty()) {
@@ -573,6 +591,9 @@ PF_Err DepthGen_RenderWorld(
 	if (history) {
 		history->Store(static_cast<std::int32_t>(time), layout,
 			depthgen::MeasureUnitRange(full_depth.values, alpha, settings.alpha_threshold, levels));
+	}
+	if (const PF_Err abort_err = CheckAbort(in_data)) {
+		return abort_err;
 	}
 	switch (pixel_format) {
 	case PF_PixelFormat_ARGB32:
