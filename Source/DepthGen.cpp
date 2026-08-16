@@ -8,7 +8,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <exception>
 #include <memory>
@@ -298,6 +300,19 @@ void DisposePreRenderData(void* data) {
 	delete reinterpret_cast<DepthGenPreRenderData*>(data);
 }
 
+void WriteReturnMessage(PF_OutData* out_data, const char* format, ...) {
+	if (!out_data || !format) {
+		return;
+	}
+	va_list args;
+	va_start(args, format);
+	const int written = std::vsnprintf(out_data->return_msg, sizeof(out_data->return_msg), format, args);
+	va_end(args);
+	if (written < 0) {
+		out_data->return_msg[0] = '\0';
+	}
+}
+
 PF_Err GlobalSetup(PF_InData* in_data, PF_OutData* out_data) {
 	if (!in_data || !out_data) return PF_Err_BAD_CALLBACK_PARAM;
 	out_data->my_version = DEPTHGEN_VERSION_PACKED;
@@ -523,7 +538,7 @@ PF_Err DepthGen_RenderWorld(
 	if (!depthgen::InferDepth(tensor, inference_width, inference_height, inference_model,
 		&result, &provider, &inference_error)) {
 		if (out_data && !inference_error.empty()) {
-			PF_SPRINTF(out_data->return_msg, "DepthGen: %s", inference_error.c_str());
+			WriteReturnMessage(out_data, "DepthGen: %s", inference_error.c_str());
 		}
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
@@ -617,8 +632,9 @@ PF_Err EffectMain(
 	try {
 		switch (cmd) {
 		case PF_Cmd_ABOUT:
-			PF_SPRINTF(out_data->return_msg, "%s v%d.%d\\r%s", DEPTHGEN_NAME,
-				DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_DESCRIPTION);
+			WriteReturnMessage(out_data, "%s v%d.%d.%d\r%s", DEPTHGEN_NAME,
+				DEPTHGEN_VERSION_MAJOR, DEPTHGEN_VERSION_MINOR, DEPTHGEN_VERSION_BUG,
+				DEPTHGEN_DESCRIPTION);
 			break;
 		case PF_Cmd_GLOBAL_SETUP: err = GlobalSetup(in_data, out_data); break;
 		case PF_Cmd_GLOBAL_SETDOWN: err = GlobalSetdown(in_data); break;
