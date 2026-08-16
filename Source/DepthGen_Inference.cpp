@@ -348,7 +348,11 @@ private:
 #if defined(DEPTHGEN_ORT_DML)
 		if (provider == InferenceProvider::DirectML) {
 			options.DisableMemPattern();
+#if defined(ORT_API_MANUAL_INIT)
+			Ort::ThrowOnError(depthgen::AppendDmlExecutionProviderFromHost(options, 0));
+#else
 			Ort::ThrowOnError(OrtSessionOptionsAppendExecutionProvider_DML(options, 0));
+#endif
 		}
 #endif
 #if defined(DEPTHGEN_ORT_COREML)
