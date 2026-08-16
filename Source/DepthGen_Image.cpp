@@ -16,9 +16,22 @@ float Clamp01(float value) noexcept {
 // `values` may be reordered by the call.
 float PercentileFromUnsorted(std::vector<float>* values, float percentile) {
 	const size_t count = values->size();
-	const float position = Clamp01(percentile / 100.0f) * static_cast<float>(count - 1);
-	const size_t lower = static_cast<size_t>(std::floor(position));
-	const size_t upper = static_cast<size_t>(std::ceil(position));
+	if (count == 0) {
+		return 0.0f;
+	}
+	// Position is computed in double: above 2^24 elements, float has too few
+	// mantissa bits to represent (count - 1) exactly, and casting it back can
+	// round up to count, pushing `upper` one past the end of `values`.
+	const double position = static_cast<double>(Clamp01(percentile / 100.0f)) *
+		static_cast<double>(count - 1);
+	size_t upper = static_cast<size_t>(std::ceil(position));
+	if (upper >= count) {
+		upper = count - 1;
+	}
+	size_t lower = static_cast<size_t>(std::floor(position));
+	if (lower > upper) {
+		lower = upper;
+	}
 	std::nth_element(values->begin(), values->begin() + upper, values->end());
 	const float high = (*values)[upper];
 	if (lower == upper) {
@@ -27,7 +40,7 @@ float PercentileFromUnsorted(std::vector<float>* values, float percentile) {
 	// After nth_element at `upper`, every value before it is <= high, so the
 	// lower order statistic is the maximum of the prefix.
 	const float low = *std::max_element(values->begin(), values->begin() + upper);
-	return low + (high - low) * (position - static_cast<float>(lower));
+	return low + (high - low) * static_cast<float>(position - static_cast<double>(lower));
 }
 
 constexpr size_t kGammaLutSize = 4096;

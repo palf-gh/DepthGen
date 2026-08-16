@@ -20,11 +20,25 @@ bool Near(float lhs, float rhs, float tolerance = 1.0e-5f) {
 	return std::abs(lhs - rhs) <= tolerance;
 }
 
-PF_EffectWorld MakeWorld8(std::vector<PF_Pixel>* storage, A_long width, A_long height) {
-	storage->resize(static_cast<size_t>(width) * static_cast<size_t>(height));
+// Byte pattern used to poison world storage before a test writes real pixel
+// data into it, so that any byte the render path never touches (row padding)
+// can be told apart from a genuine, intentionally written value.
+constexpr A_u_char kWorldSentinelByte = 0xA5;
+
+PF_EffectWorld MakeWorld8(std::vector<PF_Pixel>* storage, A_long width, A_long height,
+	A_long row_padding_bytes = 0) {
+	const A_long rowbytes = static_cast<A_long>(width * sizeof(PF_Pixel)) + row_padding_bytes;
+	const size_t needed_bytes = static_cast<size_t>(rowbytes) * static_cast<size_t>(height);
+	const size_t pixel_count = (needed_bytes + sizeof(PF_Pixel) - 1) / sizeof(PF_Pixel);
+	PF_Pixel sentinel{};
+	sentinel.alpha = kWorldSentinelByte;
+	sentinel.red = kWorldSentinelByte;
+	sentinel.green = kWorldSentinelByte;
+	sentinel.blue = kWorldSentinelByte;
+	storage->assign(pixel_count, sentinel);
 	PF_EffectWorld world{};
 	world.data = storage->data();
-	world.rowbytes = static_cast<A_long>(width * sizeof(PF_Pixel));
+	world.rowbytes = rowbytes;
 	world.width = width;
 	world.height = height;
 	world.origin_x = 0;
@@ -84,6 +98,17 @@ int main() {
 		Require(Near(eleven[5], 0.5f), "interpolated 25/75 percentiles must centre the mid sample");
 		Require(Near(eleven[2], 0.0f) && Near(eleven[8], 1.0f),
 			"interpolated percentiles must clip at the fractional bounds");
+	}
+	// Percentile boundary: a full 0/100 range must reproduce the exact
+	// sample minimum and maximum for a small, unsorted input.
+	{
+		const std::vector<float> boundary_depth = {0.30f, 0.05f, 0.72f, 0.44f, 0.18f};
+		const std::vector<float> boundary_alpha(boundary_depth.size(), 1.0f);
+		const depthgen::DepthLevels boundary_levels = depthgen::ComputeDepthLevels(
+			boundary_depth, boundary_alpha, 0.0f, true, 0.0f, 100.0f);
+		Require(boundary_levels.valid, "full-range percentile levels must be valid for five opaque samples");
+		Require(Near(boundary_levels.low, 0.05f), "0th percentile must equal the sample minimum");
+		Require(Near(boundary_levels.high, 0.72f), "100th percentile must equal the sample maximum");
 	}
 	// Contrast uses a LUT; verify sqrt behaviour at a mid value within LUT error.
 	{
@@ -179,6 +204,97 @@ int main() {
 		const float expected = depthgen::LinearToSrgb(128.0f / 255.0f);
 		Require(Near(tensor[0], expected, 3.0e-3f),
 			"linear input must pass through the sRGB transfer LUT");
+	}
+
+	// After Effects hands back composition-sized layers with rowbytes wider
+	// than width * sizeof(Pixel); padding must never be read as pixel data
+	// nor written to. The assertions in this block hold against unmodified
+	// production code -- they are regression guards for the rowbytes
+	// contract, not a reproduction of a prior crash.
+	{
+		const A_long padded_width = 5;
+		const A_long padded_height = 4;
+		const A_long padding = static_cast<A_long>(3 * sizeof(PF_Pixel));
+
+		std::vector<PF_Pixel> input_storage;
+		PF_EffectWorld input_world = MakeWorld8(&input_storage, padded_width, padded_height, padding);
+		std::vector<float> expected_alpha(static_cast<size_t>(padded_width) * static_cast<size_t>(padded_height));
+		for (A_long y = 0; y < padded_height; ++y) {
+			for (A_long x = 0; x < padded_width; ++x) {
+				PF_Pixel* pixel = depthgen::PixelAt<PF_Pixel>(&input_world, x, y);
+				const A_u_char alpha_byte = static_cast<A_u_char>((y * padded_width + x) * 5 + 10);
+				pixel->alpha = alpha_byte;
+				pixel->red = alpha_byte;
+				pixel->green = alpha_byte;
+				pixel->blue = alpha_byte;
+				expected_alpha[static_cast<size_t>(y) * static_cast<size_t>(padded_width) + static_cast<size_t>(x)] =
+					static_cast<float>(alpha_byte) / 255.0f;
+			}
+		}
+		const std::vector<float> read_alpha = depthgen::ReadWorldAlpha<PF_Pixel>(&input_world);
+		Require(read_alpha.size() == expected_alpha.size(),
+			"ReadWorldAlpha must return exactly width * height values for a padded world");
+		bool alpha_matches = true;
+		for (size_t i = 0; i < read_alpha.size(); ++i) {
+			if (!Near(read_alpha[i], expected_alpha[i])) {
+				alpha_matches = false;
+				break;
+			}
+		}
+		Require(alpha_matches, "ReadWorldAlpha must read only the pixel columns, never row padding");
+
+		std::vector<PF_Pixel> output_storage;
+		PF_EffectWorld output_world = MakeWorld8(&output_storage, padded_width, padded_height, padding);
+		const size_t padded_pixel_count = static_cast<size_t>(padded_width) * static_cast<size_t>(padded_height);
+		std::vector<float> row_depth(padded_pixel_count);
+		for (A_long y = 0; y < padded_height; ++y) {
+			for (A_long x = 0; x < padded_width; ++x) {
+				row_depth[static_cast<size_t>(y) * static_cast<size_t>(padded_width) + static_cast<size_t>(x)] =
+					(y % 2 == 0) ? 1.0f : 0.0f;
+			}
+		}
+		const std::vector<float> full_alpha(padded_pixel_count, 1.0f);
+		depthgen::WriteDepthWorld<PF_Pixel>(&output_world, &input_world, row_depth, full_alpha, true);
+
+		bool grid_matches = true;
+		for (A_long y = 0; y < padded_height && grid_matches; ++y) {
+			const A_u_char expected_grey = (y % 2 == 0) ? static_cast<A_u_char>(255) : static_cast<A_u_char>(0);
+			for (A_long x = 0; x < padded_width; ++x) {
+				const PF_Pixel* pixel = depthgen::PixelAt<PF_Pixel>(&output_world, x, y);
+				if (pixel->red != expected_grey || pixel->green != expected_grey ||
+					pixel->blue != expected_grey || pixel->alpha != 255) {
+					grid_matches = false;
+					break;
+				}
+			}
+		}
+		Require(grid_matches, "WriteDepthWorld must write the exact per-row depth/alpha pattern into a padded world");
+
+		const A_u_char* raw = reinterpret_cast<const A_u_char*>(output_storage.data());
+		const A_long pixel_row_bytes = padded_width * static_cast<A_long>(sizeof(PF_Pixel));
+		bool padding_intact = true;
+		for (A_long y = 0; y < padded_height && padding_intact; ++y) {
+			const A_u_char* row = raw + static_cast<size_t>(y) * static_cast<size_t>(output_world.rowbytes);
+			for (A_long b = pixel_row_bytes; b < output_world.rowbytes; ++b) {
+				if (row[b] != kWorldSentinelByte) {
+					padding_intact = false;
+					break;
+				}
+			}
+		}
+		Require(padding_intact, "WriteDepthWorld must never write outside the pixel columns of a padded world");
+	}
+
+	// A null pixel-data pointer with otherwise valid dimensions must be
+	// rejected rather than dereferenced.
+	{
+		PF_EffectWorld null_data_world{};
+		null_data_world.data = nullptr;
+		null_data_world.rowbytes = 4 * static_cast<A_long>(sizeof(PF_Pixel));
+		null_data_world.width = 4;
+		null_data_world.height = 4;
+		const std::vector<float> null_alpha_result = depthgen::ReadWorldAlpha<PF_Pixel>(&null_data_world);
+		Require(null_alpha_result.empty(), "ReadWorldAlpha must return an empty vector for a null data pointer");
 	}
 
 	{
@@ -296,6 +412,28 @@ int main() {
 		const depthgen::TemporalLayout other{4, 4, 2, 768};
 		Require(!history.CopyPrevious(1, 1, other, &previous),
 			"a model or size change must not reuse an incompatible cache entry");
+	}
+
+	// Large-N percentile boundary. Above 2^24 elements, float has too few
+	// mantissa bits to hold (count - 1) exactly; casting it can round up to
+	// count itself, which previously let the near-100 percentile index read
+	// one element past the end of the buffer (Near Clip at its slider
+	// maximum of 100 hit this in practice). This count is 2^24 + 4, chosen
+	// so (count - 1) lands on that rounding boundary. The ramp/alpha pair
+	// and the transient copy ComputeDepthLevels takes of it peak at roughly
+	// 200 MB; scoped last, and to itself, so it frees immediately.
+	{
+		const size_t huge_count = (static_cast<size_t>(1) << 24) + 4;
+		std::vector<float> huge_depth(huge_count);
+		for (size_t i = 0; i < huge_count; ++i) {
+			huge_depth[i] = static_cast<float>(i) / static_cast<float>(huge_count - 1);
+		}
+		const std::vector<float> huge_alpha(huge_count, 1.0f);
+		const depthgen::DepthLevels huge_levels = depthgen::ComputeDepthLevels(
+			huge_depth, huge_alpha, 0.0f, true, 0.0f, 100.0f);
+		Require(huge_levels.valid, "large-sample percentile levels must remain valid above 2^24 samples");
+		Require(Near(huge_levels.low, 0.0f), "0th percentile must still equal the ramp minimum");
+		Require(Near(huge_levels.high, 1.0f), "100th percentile must equal the true ramp maximum, not an OOB read");
 	}
 
 	std::cout << "DepthGen image-pipeline tests passed\n";

@@ -479,7 +479,8 @@ PF_Err DepthGen_RenderWorld(
 	depthgen::TemporalHistory* history,
 	A_long time,
 	A_long time_step) {
-	if (!input_world || !output_world || input_world->width <= 0 || input_world->height <= 0 ||
+	if (!input_world || !output_world || !input_world->data || !output_world->data ||
+		input_world->width <= 0 || input_world->height <= 0 ||
 		output_world->width <= 0 || output_world->height <= 0) {
 		return PF_Err_BAD_CALLBACK_PARAM;
 	}
